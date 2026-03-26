@@ -23,9 +23,13 @@ After 10 sessions of simulated coding work on an Express.js API, score the agent
 - `append-only` — Concatenate all sessions without compaction
 - `no-memory` — No context at all
 
-### Layer 2: Context Quality / Instruction Drift (future)
+### Layer 2: Context Quality / Instruction Drift
 
-Test whether SOUL maintains behavioral compliance (plan-before-action, docs-before-code) at high context depths where vanilla agents drift.
+Tests whether behavioral instructions (plan-first, docs-first) are followed at increasing context depths.
+
+**Preliminary finding:** Using `claude -p --system-prompt-file` with padding up to 300k tokens does NOT reproduce the instruction drift observed in interactive sessions. The model scored 2-3/3 compliance at all depths with no degradation trend. The `input_tokens: 3` metric at every depth suggests the system prompt is cached/handled differently than interactive context.
+
+**Limitation:** The drift phenomenon likely requires real multi-turn interactive context (tool calls, file reads, edits) — not just a large system prompt. A proper Layer 2 test needs either the streaming input API or real interactive sessions with injected checkpoints. This is deferred to future work.
 
 ## Running
 
