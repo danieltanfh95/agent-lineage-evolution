@@ -1,0 +1,11 @@
+.DS_Store
+.soul/log/*.jsonl
+.claude/settings.local.json
+experiments/*/results/
+experiments/05-longmemeval/data/
+experiments/05-longmemeval/LongMemEval/
+experiments/*/.venv/
+__pycache__/
+*.pyc
+*.swp
+*.swo

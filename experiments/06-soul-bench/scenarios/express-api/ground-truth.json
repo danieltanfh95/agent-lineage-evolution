@@ -1,0 +1,169 @@
+{
+  "scenario": "express-api",
+  "questions": [
+    {
+      "id": "ret-01",
+      "category": "retention",
+      "question": "What database does the project use?",
+      "answer": "SQLite",
+      "answer_keywords": ["sqlite"],
+      "notes": "Established in session 1, never changed"
+    },
+    {
+      "id": "ret-02",
+      "category": "retention",
+      "question": "What query builder or ORM does the project use for database access?",
+      "answer": "Knex",
+      "answer_keywords": ["knex"],
+      "notes": "Changed from raw SQL to Knex in session 4"
+    },
+    {
+      "id": "ret-03",
+      "category": "retention",
+      "question": "What authentication method does the project use?",
+      "answer": "JWT (JSON Web Tokens)",
+      "answer_keywords": ["jwt", "json web token"],
+      "notes": "Added in session 2"
+    },
+    {
+      "id": "ret-04",
+      "category": "retention",
+      "question": "What is the JWT token expiry time?",
+      "answer": "24 hours",
+      "answer_keywords": ["24h", "24 hour"],
+      "notes": "Specified in session 2"
+    },
+    {
+      "id": "ret-05",
+      "category": "retention",
+      "question": "What test framework does the project use?",
+      "answer": "Jest with Supertest",
+      "answer_keywords": ["jest"],
+      "notes": "Added in session 8"
+    },
+    {
+      "id": "ret-06",
+      "category": "retention",
+      "question": "What is the approximate test coverage?",
+      "answer": "80%",
+      "answer_keywords": ["80"],
+      "notes": "Stated in session 8"
+    },
+    {
+      "id": "ret-07",
+      "category": "retention",
+      "question": "What port does the server run on?",
+      "answer": "3000",
+      "answer_keywords": ["3000"],
+      "notes": "Established in session 1"
+    },
+    {
+      "id": "ret-08",
+      "category": "retention",
+      "question": "How are passwords stored?",
+      "answer": "Hashed with bcrypt (salt rounds of 10)",
+      "answer_keywords": ["bcrypt"],
+      "notes": "Added in session 2"
+    },
+    {
+      "id": "contra-01",
+      "category": "contradiction",
+      "question": "What caching layer does the project use?",
+      "answer": "Memcached",
+      "answer_keywords": ["memcached"],
+      "stale_keywords": ["redis"],
+      "notes": "Redis in session 5, swapped to Memcached in session 6"
+    },
+    {
+      "id": "contra-02",
+      "category": "contradiction",
+      "question": "How does the project interact with the database — raw SQL or a query builder?",
+      "answer": "Knex query builder",
+      "answer_keywords": ["knex"],
+      "stale_keywords": ["raw sql", "db.all(", "db.get(", "db.run("],
+      "notes": "Raw SQL in sessions 1-3, Knex from session 4 onward"
+    },
+    {
+      "id": "contra-03",
+      "category": "contradiction",
+      "question": "How does the project handle user deletion?",
+      "answer": "Soft-delete pattern using a deleted_at column and POST /users/:id/deactivate endpoint",
+      "answer_keywords": ["soft-delete", "soft delete", "deactivat", "deleted_at"],
+      "stale_keywords": ["DELETE /users"],
+      "notes": "Hard delete in sessions 1-8, soft-delete from session 9"
+    },
+    {
+      "id": "contra-04",
+      "category": "contradiction",
+      "question": "What environment variable configures the cache connection?",
+      "answer": "CACHE_URL",
+      "answer_keywords": ["cache_url"],
+      "stale_keywords": ["redis_url"],
+      "notes": "REDIS_URL in session 5, renamed to CACHE_URL in session 6"
+    },
+    {
+      "id": "stale-01",
+      "category": "staleness",
+      "question": "Does the project have a DELETE /users/:id endpoint?",
+      "answer": "No, it was removed in favor of soft-delete via POST /users/:id/deactivate",
+      "answer_keywords": ["no", "removed", "soft-delete", "deactivate"],
+      "notes": "Removed in session 9"
+    },
+    {
+      "id": "stale-02",
+      "category": "staleness",
+      "question": "Does the project use the sqlite3 npm package directly?",
+      "answer": "No, it uses Knex with better-sqlite3",
+      "answer_keywords": ["no", "knex", "better-sqlite3"],
+      "notes": "sqlite3 replaced in session 4"
+    },
+    {
+      "id": "abstain-01",
+      "category": "abstention",
+      "question": "What CI/CD pipeline does the project use?",
+      "answer": "I don't know",
+      "answer_keywords": ["don't know", "not mentioned", "no information", "not specified"],
+      "notes": "Never mentioned in any session"
+    },
+    {
+      "id": "abstain-02",
+      "category": "abstention",
+      "question": "What cloud provider hosts the project?",
+      "answer": "I don't know",
+      "answer_keywords": ["don't know", "not mentioned", "no information", "not specified"],
+      "notes": "Never mentioned in any session"
+    },
+    {
+      "id": "abstain-03",
+      "category": "abstention",
+      "question": "What logging framework does the project use?",
+      "answer": "I don't know",
+      "answer_keywords": ["don't know", "not mentioned", "no information", "not specified"],
+      "notes": "Never mentioned in any session"
+    },
+    {
+      "id": "warn-01",
+      "category": "warning",
+      "question": "What is a known pitfall with the authentication system?",
+      "answer": "The ignoreExpiration flag was accidentally left enabled, causing expired tokens to be accepted. Development-only flags must be removed before committing.",
+      "answer_keywords": ["ignoreexpiration", "expired token", "expir"],
+      "notes": "Lesson learned from session 3"
+    },
+    {
+      "id": "warn-02",
+      "category": "warning",
+      "question": "Why was Redis replaced?",
+      "answer": "Redis licensing concerns — Redis changed to SSPL license which was incompatible with deployment requirements",
+      "answer_keywords": ["licens", "sspl"],
+      "notes": "Explained in session 6"
+    },
+    {
+      "id": "warn-03",
+      "category": "warning",
+      "question": "What performance issue was found and fixed in the users endpoint?",
+      "answer": "N+1 query problem when fetching users with roles — fixed with a LEFT JOIN and GROUP_CONCAT",
+      "answer_keywords": ["n+1", "n plus 1", "join"],
+      "notes": "Fixed in session 7"
+    }
+  ]
+}

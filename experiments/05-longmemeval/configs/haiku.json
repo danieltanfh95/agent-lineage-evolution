@@ -1,0 +1,7 @@
+{
+  "condition": "soul",
+  "compact_model": "haiku",
+  "reader_model": "opus",
+  "compact_every": 1,
+  "description": "SOUL compaction with Haiku, compact after every session. Default SOUL behavior."
+}

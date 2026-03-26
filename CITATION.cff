@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "SOUL: Structured Oversight of Unified Lineage"
+abstract: "A governance framework for persistent agent identity in Claude Code. SOUL provides rolling knowledge compaction, conscience-based audit loops, human-authored invariants, and hierarchical genome inheritance to address LLM agent memory degradation."
+authors:
+  - family-names: Tan
+    given-names: Daniel
+version: 1.0.0
+date-released: "2026-03-25"
+license: MIT
+repository-code: "https://github.com/g-daniel/agent-lineage-evolution"
+keywords:
+  - LLM agents
+  - agent governance
+  - memory management
+  - Claude Code
+  - knowledge compaction
+references:
+  - type: article
+    title: "Agent Lineage Evolution: A Novel Framework for Managing LLM Agent Degradation"
+    authors:
+      - family-names: Tan
+        given-names: Daniel
+    year: 2025
+    url: "https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation"
+    notes: "Conceptual predecessor to SOUL, demonstrating generational succession for LLM agents via manual prompt engineering."

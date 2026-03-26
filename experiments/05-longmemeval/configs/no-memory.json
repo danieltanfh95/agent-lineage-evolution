@@ -1,0 +1,5 @@
+{
+  "condition": "no-memory",
+  "reader_model": "opus",
+  "description": "No memory baseline. Question answered without any conversation history."
+}

@@ -1,0 +1,7 @@
+{
+  "condition": "soul",
+  "compact_model": "sonnet",
+  "reader_model": "opus",
+  "compact_every": 1,
+  "description": "SOUL compaction with Sonnet, compact after every session. Higher quality compaction."
+}

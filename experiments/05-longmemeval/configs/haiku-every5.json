@@ -1,0 +1,7 @@
+{
+  "condition": "soul",
+  "compact_model": "haiku",
+  "reader_model": "opus",
+  "compact_every": 5,
+  "description": "SOUL compaction with Haiku, compact every 5 sessions. Tests batch compaction effect."
+}

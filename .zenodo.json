@@ -1,0 +1,29 @@
+{
+  "title": "SOUL: Structured Oversight of Unified Lineage",
+  "description": "A governance framework for persistent agent identity in Claude Code. SOUL provides rolling knowledge compaction, conscience-based audit loops, human-authored invariants, and hierarchical genome inheritance to address LLM agent memory degradation.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Tan, Daniel"
+    }
+  ],
+  "keywords": [
+    "LLM agents",
+    "agent governance",
+    "memory management",
+    "Claude Code",
+    "knowledge compaction",
+    "context poisoning",
+    "agent identity"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation",
+      "relation": "isSupplementedBy",
+      "resource_type": "publication-article"
+    }
+  ],
+  "version": "1.0.0"
+}

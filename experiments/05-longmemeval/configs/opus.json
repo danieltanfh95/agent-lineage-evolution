@@ -1,0 +1,7 @@
+{
+  "condition": "soul",
+  "compact_model": "opus",
+  "reader_model": "opus",
+  "compact_every": 1,
+  "description": "SOUL compaction with Opus, compact after every session. Best possible compaction quality."
+}
