@@ -20,7 +20,7 @@ Each experiment directory contains:
 - Scripts (`.sh`) — Automation for setup and execution
 - Evaluation criteria — Rubrics or scoring definitions
 
-Results are written to `results/` within each experiment directory (excluded from version control via `.gitignore`).
+Results are written to `results/` within each experiment directory. Key results (predictions, metrics, memories) are committed for reproducibility.
 
 ## Prerequisites
 

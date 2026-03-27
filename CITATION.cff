@@ -6,10 +6,12 @@ abstract: "A governance framework for persistent agent identity in Claude Code. 
 authors:
   - family-names: Tan
     given-names: Daniel
+    orcid: "https://orcid.org/0009-0008-2267-7780"
+    affiliation: "Independent Researcher"
 version: 1.0.0
-date-released: "2026-03-25"
+date-released: "2026-03-28"
 license: MIT
-repository-code: "https://github.com/g-daniel/agent-lineage-evolution"
+repository-code: "https://github.com/danieltanfh95/agent-lineage-evolution"
 keywords:
   - LLM agents
   - agent governance

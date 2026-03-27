@@ -1,0 +1,142 @@
+[
+  {
+    "id": "ret-01",
+    "category": "retention",
+    "question": "What database does the project use?",
+    "prediction": "SQLite, using the **better-sqlite3** driver with **Knex.js** as the query builder.",
+    "latency_s": 5.331
+  },
+  {
+    "id": "ret-02",
+    "category": "retention",
+    "question": "What query builder or ORM does the project use for database access?",
+    "prediction": "The project uses **Knex.js** as the query builder for database access, with the **better-sqlite3** driver for SQLite. Raw SQL queries have been fully replaced by Knex methods.",
+    "latency_s": 7.78
+  },
+  {
+    "id": "ret-03",
+    "category": "retention",
+    "question": "What authentication method does the project use?",
+    "prediction": "The project uses **JWT (JSON Web Token) authentication** with the following details:\n\n- **Token expiry**: 24 hours\n- **Token delivery**: Bearer token in the `Authorization` header\n- **Password hashing**: bcrypt with 10 salt rounds\n- **JWT secret**: stored in `process.env.JWT_SECRET` (defaults to `'dev-secret'` in development)\n- **Auth endpoints**: `POST /auth/login` (email/password \u2192 token) and `POST /auth/register` (create user \u2192 token)\n- **Middleware**: `authenticateToken` middleware protects all `/users` endpoints\n- **Error handling**: `TokenExpiredError` and `JsonWebTokenError` return appropriate 401 responses",
+    "latency_s": 6.517
+  },
+  {
+    "id": "ret-04",
+    "category": "retention",
+    "question": "What is the JWT token expiry time?",
+    "prediction": "24 hours.",
+    "latency_s": 4.674
+  },
+  {
+    "id": "ret-05",
+    "category": "retention",
+    "question": "What test framework does the project use?",
+    "prediction": "The project uses **Jest** as the test framework, along with **Supertest** for HTTP endpoint testing.",
+    "latency_s": 6.926
+  },
+  {
+    "id": "ret-06",
+    "category": "retention",
+    "question": "What is the approximate test coverage?",
+    "prediction": "80% code coverage baseline.",
+    "latency_s": 5.858
+  },
+  {
+    "id": "ret-07",
+    "category": "retention",
+    "question": "What port does the server run on?",
+    "prediction": "Port **3000**.",
+    "latency_s": 6.489
+  },
+  {
+    "id": "ret-08",
+    "category": "retention",
+    "question": "How are passwords stored?",
+    "prediction": "Passwords are stored as bcrypt hashes (with 10 salt rounds) in the `password_hash` column of the `users` table.",
+    "latency_s": 5.118
+  },
+  {
+    "id": "contra-01",
+    "category": "contradiction",
+    "question": "What caching layer does the project use?",
+    "prediction": "The project uses **Memcached** with a cache-aside pattern. Key details:\n\n- **TTL**: 5 minutes\n- **Cache keys**: `users:v{N}:all` for listing, `users:v{N}:{id}` for individual users, where `N` is a version counter\n- **Invalidation**: Version counter increment on writes (POST/DELETE) \u2014 no pattern-based deletion\n- **Graceful degradation**: Falls back to the database if Memcached is unavailable\n- **Configuration**: `CACHE_URL` environment variable, defaults to `localhost:11211`\n- **Testing**: Uses `memcached-mock` to avoid external dependency in tests",
+    "latency_s": 7.984
+  },
+  {
+    "id": "contra-02",
+    "category": "contradiction",
+    "question": "How does the project interact with the database \u2014 raw SQL or a query builder?",
+    "prediction": "The project uses **Knex.js** as a query builder for SQLite (with the `better-sqlite3` driver). Raw SQL queries were fully replaced by Knex, and the predecessor warnings explicitly state to maintain consistency with Knex methods going forward to avoid regression to raw SQL. Query patterns follow Knex's fluent API, e.g., `db('users').select('*')`, `db('users').where({ id }).first()`, `db('users').insert({...})`, and `.leftJoin()` with `.groupBy()` and `GROUP_CONCAT()` for multi-table queries.",
+    "latency_s": 6.417
+  },
+  {
+    "id": "contra-03",
+    "category": "contradiction",
+    "question": "How does the project handle user deletion?",
+    "prediction": "The project uses a **GDPR-compliant soft-delete pattern**. There is no hard `DELETE /users/:id` endpoint \u2014 it has been removed and will return 404 if attempted.\n\nInstead, users are deactivated via **`POST /users/:id/deactivate`**, which sets the `deleted_at` column to the current timestamp. All read endpoints filter out soft-deleted users by including `.whereNull('deleted_at')` in their queries, so deactivated users are effectively hidden without permanently removing their data.",
+    "latency_s": 6.782
+  },
+  {
+    "id": "contra-04",
+    "category": "contradiction",
+    "question": "What environment variable configures the cache connection?",
+    "prediction": "`CACHE_URL`",
+    "latency_s": 6.477
+  },
+  {
+    "id": "stale-01",
+    "category": "staleness",
+    "question": "Does the project have a DELETE /users/:id endpoint?",
+    "prediction": "No. The `DELETE /users/:id` endpoint has been removed. Users are instead deactivated via `POST /users/:id/deactivate`, which sets the `deleted_at` timestamp (soft-delete pattern for GDPR compliance). Attempting a hard deletion will return 404.",
+    "latency_s": 5.795
+  },
+  {
+    "id": "stale-02",
+    "category": "staleness",
+    "question": "Does the project use the sqlite3 npm package directly?",
+    "prediction": "No. The project uses **better-sqlite3** as the SQLite driver, accessed through the **Knex.js** query builder \u2014 not the `sqlite3` npm package directly.",
+    "latency_s": 5.427
+  },
+  {
+    "id": "abstain-01",
+    "category": "abstention",
+    "question": "What CI/CD pipeline does the project use?",
+    "prediction": "I don't know.",
+    "latency_s": 5.444
+  },
+  {
+    "id": "abstain-02",
+    "category": "abstention",
+    "question": "What cloud provider hosts the project?",
+    "prediction": "I don't know.",
+    "latency_s": 4.766
+  },
+  {
+    "id": "abstain-03",
+    "category": "abstention",
+    "question": "What logging framework does the project use?",
+    "prediction": "I don't know.",
+    "latency_s": 4.976
+  },
+  {
+    "id": "warn-01",
+    "category": "warning",
+    "question": "What is a known pitfall with the authentication system?",
+    "prediction": "A known pitfall is the use of `ignoreExpiration: true` during development \u2014 this flag bypasses JWT token expiry checks and **must be removed before commit** as it undermines a critical security control. The predecessor warnings explicitly flag this: development-only flags like `ignoreExpiration: true` can silently disable expiry verification in production if left in place.\n\nAdditionally, any changes to the auth middleware require **explicit testing with expired and invalid tokens** to prevent security regressions.",
+    "latency_s": 7.231
+  },
+  {
+    "id": "warn-02",
+    "category": "warning",
+    "question": "Why was Redis replaced?",
+    "prediction": "Redis was replaced because the project moved to Memcached with **version-counter-based cache invalidation** instead of Redis's **pattern-based deletion** (e.g., `KEYS` or `SCAN` commands). Memcached doesn't support pattern-based key deletion, so the version counter approach was adopted \u2014 incrementing a version number on writes to effectively invalidate all cached entries without needing to find and delete individual keys.",
+    "latency_s": 6.535
+  },
+  {
+    "id": "warn-03",
+    "category": "warning",
+    "question": "What performance issue was found and fixed in the users endpoint?",
+    "prediction": "An **N+1 query problem** was found and fixed in the users endpoint.\n\nThe fix replaced per-record looping (fetching related data individually for each user) with a single query using **`.leftJoin()`** combined with **`.groupBy()`** and **`GROUP_CONCAT()`** to fetch related data (e.g., roles from the `user_roles` join table) in one query. Additionally, **database indexes were added on join table foreign keys** (e.g., `user_roles.user_id`) to ensure fast retrieval of the joined data.",
+    "latency_s": 7.445
+  }
+]

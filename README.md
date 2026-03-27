@@ -8,6 +8,22 @@ SOUL extends the [Agent Lineage Evolution (ALE)](https://danieltan.weblog.lol/20
 
 ## Quick Start
 
+### Option A: Install as a Claude Code skill (recommended)
+
+```bash
+npx skills add danieltanfh95/agent-lineage-evolution --skill soul
+```
+
+Then in Claude Code:
+
+```
+/soul setup
+```
+
+Answer 3 questions about your role, rules, and project knowledge. Done — SOUL is active.
+
+### Option B: Manual setup
+
 ```bash
 ./soul-init.sh
 ```
@@ -60,7 +76,7 @@ If you use SOUL in your research or projects, please cite:
   author = {Tan, Daniel},
   title = {SOUL: Structured Oversight of Unified Lineage},
   year = {2026},
-  url = {https://github.com/g-daniel/agent-lineage-evolution},
+  url = {https://github.com/danieltanfh95/agent-lineage-evolution},
   version = {1.0.0}
 }
 ```
