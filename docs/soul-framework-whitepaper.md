@@ -215,9 +215,31 @@ SOUL uses three Claude Code hooks:
 
 Hooks are registered in `.claude/settings.json` and activate automatically for any `claude` session in the repository. No alias, wrapper, or launcher is needed.
 
-### 4.3 Initialization
+### 4.3 Context-Aware Status Line
 
-A single command initializes the framework:
+SOUL includes a status line script that displays real-time context usage alongside SOUL memory size. Claude Code's status line API provides `context_window.used_percentage` on every update, enabling a color-coded compaction indicator:
+
+- **Green** (below threshold): Context is in the high-quality zone
+- **Yellow** (at threshold, default 15%): "consider /compact" — context approaching the quality degradation point
+- **Red** (threshold + 5%): "/compact recommended" — quality degradation likely in progress
+
+The threshold is configurable via `.soul/config.json` (`compaction.suggestAtPercent`). The default of 15% corresponds to approximately 150k tokens on a 1M-token context model — the empirically observed threshold at which instruction following begins to degrade in interactive sessions.
+
+This addresses a fundamental timing problem: Claude Code's built-in auto-compaction triggers when the context window fills up, which may be well past the point where output quality has already degraded. SOUL's status line provides early warning, allowing the user to proactively compact before quality suffers.
+
+### 4.4 Installation
+
+SOUL can be installed via two methods:
+
+**Method A: skills.sh (recommended)**
+
+```bash
+npx skills add danieltanfh95/agent-lineage-evolution --skill soul
+```
+
+This installs SOUL as a Claude Code skill with hooks declared in the skill's YAML frontmatter. The hooks activate automatically — no manual `settings.json` editing required. The user then runs `/soul setup` for interactive configuration.
+
+**Method B: Manual initialization**
 
 ```bash
 ./soul-init.sh
@@ -267,6 +289,14 @@ The choice of model for compaction has a dramatic effect on quality. Early bench
 Haiku's failure is instructive: despite explicit instructions to "keep under 2000 tokens," it cannot reason about what to discard when given a large input. It defaults to preserving everything, causing unbounded growth. Sonnet 4.6's extended thinking capability appears to be the key differentiator — the model can plan its compression strategy before generating output, achieving near-Opus quality at lower cost.
 
 Based on these findings, the framework's default compaction model is Sonnet 4.6. Haiku remains the default for conscience audits, where the task (checking invariants against a response) is simpler and does not require the same compression reasoning.
+
+### 5.6 Proactive Compaction Timing
+
+A key observation motivates SOUL's approach to compaction timing: LLM output quality degrades significantly before the context window is full. In interactive Claude Code sessions, instruction drift — where the agent stops following process instructions such as "document before implementing" — is observed around 150k tokens, well below the 1M token context limit.
+
+Claude Code's built-in auto-compaction triggers only when the context window approaches its limit. By that point, the agent may have been operating in a degraded state for hundreds of thousands of tokens. SOUL addresses this with a configurable status line indicator (Section 4.3) that suggests `/compact` at a user-defined threshold — defaulting to 15% of the context window, approximately 150k tokens on current models.
+
+This is a suggestion, not an automated trigger — the user retains control over when compaction occurs. The status line provides the awareness that compaction would be beneficial; the decision to act remains human.
 
 ---
 

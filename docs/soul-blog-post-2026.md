@@ -98,7 +98,17 @@ SOUL asks you three questions:
 2. What rules should I always follow?
 3. Any project knowledge I should remember?
 
-That's it. SOUL is active. Every future session in this project will have your identity, rules, and knowledge loaded automatically. When context gets long, compaction fires automatically to keep knowledge fresh and compact.
+That's it. SOUL is active. Every future session in this project will have your identity, rules, and knowledge loaded automatically.
+
+You'll also see a status line at the bottom of your terminal:
+
+```
+[Opus] ctx:10% | soul:3382c                    ← green, all good
+[Opus] ctx:16% | soul:3382c consider /compact   ← yellow, approaching quality cliff
+[Opus] ctx:25% | soul:3382c /compact recommended ← red, compact now
+```
+
+This monitors context usage in real-time. When it turns yellow (~150k tokens), it's time to `/compact` — that's the point where we've observed instruction drift in long sessions. SOUL keeps you in the high-quality zone.
 
 ### Other Commands
 
