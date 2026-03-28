@@ -1,0 +1,1 @@
+Help me create a dbt model that calculates monthly active users (MAU) from the events table. I need to present trends to the exec team.

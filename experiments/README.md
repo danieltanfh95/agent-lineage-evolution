@@ -1,6 +1,6 @@
 # SOUL Framework — Experiments
 
-This directory contains six experiments designed to empirically validate SOUL's core claims. Each experiment has a self-contained protocol, evaluation criteria, and scripts.
+This directory contains seven experiments designed to empirically validate SOUL's core claims. Each experiment has a self-contained protocol, evaluation criteria, and scripts.
 
 ## Overview
 
@@ -12,6 +12,7 @@ This directory contains six experiments designed to empirically validate SOUL's 
 | 04 | [Compaction Quality Trajectory](04-compaction-quality-trajectory/) | Does SOUL.md quality improve over compaction cycles? | Quality score trajectory |
 | 05 | [SOUL vs. LongMemEval](05-longmemeval/) | Can lossy compaction support personal-memory recall? | LongMemEval accuracy, cost, compression ratio |
 | 06 | [SOUL-Bench](06-soul-bench/) | Does SOUL retain code knowledge, resolve contradictions, prune stale info? | Per-category accuracy on 20 questions |
+| 07 | [Knowledge Workers](07-knowledge-workers/) | Does SOUL improve experience for PMs and analysts? | Role awareness, rule compliance, preference updates |
 
 ## Running Experiments
 
@@ -38,3 +39,4 @@ These experiments correspond to the questions posed in Section 7.5 of the [SOUL 
 4. How do conscience violation rates correlate with agent output quality? → Experiment 04
 5. Can SOUL's compaction compete on external benchmarks? → Experiment 05 (LongMemEval, ICLR 2025)
 6. Does SOUL retain code project knowledge across sessions? → Experiment 06 (SOUL-Bench)
+7. Does SOUL improve the experience for knowledge workers? → Experiment 07

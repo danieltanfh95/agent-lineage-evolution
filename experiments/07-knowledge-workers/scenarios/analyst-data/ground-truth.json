@@ -1,0 +1,30 @@
+{
+  "scenario": "analyst-data",
+  "sessions": {
+    "02": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["snowflake", "fct_revenue", "dim_users"], "description": "Uses correct table names and warehouse"},
+        {"id": "rule_compliant", "keyword_present": ["methodology", "assumption", "approach", "logic"], "description": "Shows methodology or approach before the query"},
+        {"id": "knowledge_used", "keyword_present": ["fct_revenue", "dim_users", "weekly"], "description": "References known tables and reporting cadence"},
+        {"id": "no_jargon", "keyword_present": ["--", "business"], "description": "SQL has business logic comments"}
+      ]
+    },
+    "03": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["dbt", "fct_events"], "description": "Uses dbt and correct table"},
+        {"id": "rule_compliant", "keyword_present": ["methodology", "assumption", "approach", "defin"], "description": "Explains MAU definition/methodology"},
+        {"id": "knowledge_used", "keyword_present": ["exec", "monthly", "looker"], "description": "References exec reporting and tools"},
+        {"id": "no_jargon", "keyword_present": ["--", "business"], "description": "Explains concepts in context"}
+      ]
+    },
+    "05": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["snowflake", "fiscal"], "description": "References data stack and fiscal calendar"},
+        {"id": "rule_compliant", "keyword_present": ["methodology", "assumption", "approach", "context", "compar", "benchmark", "trend"], "description": "Numbers presented with context"},
+        {"id": "knowledge_used", "keyword_present": ["april", "fiscal", "exec"], "description": "Knows fiscal year starts April"},
+        {"id": "pref_updated", "keyword_present": ["<table", "|", "---"], "description": "Uses tables instead of bullet points"},
+        {"id": "no_jargon", "keyword_absent": ["p-value", "standard deviation", "regression coefficient"], "description": "Explains stats in plain terms"}
+      ]
+    }
+  }
+}

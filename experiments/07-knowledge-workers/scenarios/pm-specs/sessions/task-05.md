@@ -1,0 +1,1 @@
+Create a feature comparison document for Athena's self-serve tier vs enterprise tier. Include pricing considerations and which features to gate.

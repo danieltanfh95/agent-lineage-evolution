@@ -1,0 +1,30 @@
+{
+  "scenario": "pm-specs",
+  "sessions": {
+    "02": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["athena", "hr"], "description": "References the product name and domain"},
+        {"id": "rule_compliant", "keyword_present": ["problem", "solution", "requirement", "success metric"], "description": "Uses the spec format (Problem, Solution, Requirements, Success Metrics)"},
+        {"id": "knowledge_used", "keyword_present": ["athena"], "description": "References project-specific knowledge"},
+        {"id": "no_jargon", "keyword_absent": ["api endpoint", "microservice", "kubernetes", "docker", "sql query"], "description": "Uses plain language appropriate for a PM"}
+      ]
+    },
+    "03": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["athena"], "description": "References the product"},
+        {"id": "rule_compliant", "keyword_present": ["problem", "solution", "requirement", "success metric"], "description": "Uses the spec format"},
+        {"id": "knowledge_used", "keyword_present": ["activation", "self-serve"], "description": "References known metrics or launch plans"},
+        {"id": "no_jargon", "keyword_absent": ["api endpoint", "microservice", "kubernetes"], "description": "Plain language"}
+      ]
+    },
+    "05": {
+      "checks": [
+        {"id": "role_aware", "keyword_present": ["athena"], "description": "References the product"},
+        {"id": "rule_compliant", "keyword_present": ["self-serve", "enterprise"], "description": "Addresses the comparison task"},
+        {"id": "knowledge_used", "keyword_present": ["athena", "q3"], "description": "References project knowledge"},
+        {"id": "pref_updated", "keyword_present": ["<table", "|", "---"], "description": "Uses tables instead of bullet points (updated preference from session 4)"},
+        {"id": "no_jargon", "keyword_absent": ["api endpoint", "microservice"], "description": "Plain language"}
+      ]
+    }
+  }
+}

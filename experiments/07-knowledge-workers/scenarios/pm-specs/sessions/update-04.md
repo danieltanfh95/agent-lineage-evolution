@@ -1,0 +1,1 @@
+Actually, from now on I prefer tables over bullet points for requirements and comparisons. Can you update my preferences?
