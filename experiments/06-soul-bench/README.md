@@ -29,7 +29,16 @@ Tests whether behavioral instructions (plan-first, docs-first) are followed at i
 
 **Preliminary finding:** Using `claude -p --system-prompt-file` with padding up to 300k tokens does NOT reproduce the instruction drift observed in interactive sessions. The model scored 2-3/3 compliance at all depths with no degradation trend. The `input_tokens: 3` metric at every depth suggests the system prompt is cached/handled differently than interactive context.
 
-**Limitation:** The drift phenomenon likely requires real multi-turn interactive context (tool calls, file reads, edits) — not just a large system prompt. A proper Layer 2 test needs either the streaming input API or real interactive sessions with injected checkpoints. This is deferred to future work.
+**Limitation:** The drift phenomenon likely requires real multi-turn interactive context (tool calls, file reads, edits) — not just a large system prompt.
+
+**Redesigned approach** (`compaction_vs_raw.py`): Instead of simulating arbitrary depths, directly compare SOUL's compacted memory vs raw accumulated transcripts. Accumulates 30+ sessions, then tests instruction compliance with:
+- Arm A: SOUL.md compacted (~5k chars) — instructions preserved in structure
+- Arm B: Raw transcript (~25k+ chars) — instructions buried under session history
+- Arm C: No memory baseline
+
+```bash
+python compaction_vs_raw.py --sessions 30 --compact-model sonnet
+```
 
 ## Running
 
