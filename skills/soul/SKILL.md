@@ -64,7 +64,33 @@ No specialized skills defined.
 [Each rule as a bullet point prefixed with "- "]
 ```
 
-5. Confirm with a friendly summary. Do NOT mention file paths, hooks, or technical details. Just say what you'll remember.
+5. Create `.soul/config.json` with default settings:
+```json
+{
+  "compaction": {
+    "model": "sonnet",
+    "suggestAtPercent": 15,
+    "autoCommit": true
+  },
+  "conscience": {
+    "model": "haiku",
+    "auditEveryNTurns": 5
+  }
+}
+```
+
+6. Configure the status line by reading the current `.claude/settings.json` (or `.claude/settings.local.json`), then merging in:
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "${CLAUDE_SKILL_DIR}/scripts/statusline.sh"
+  }
+}
+```
+Use the Edit tool to add the statusLine field without overwriting existing settings. If a statusLine already exists, replace it.
+
+7. Confirm with a friendly summary. Do NOT mention file paths, hooks, or technical details. Just say what you'll remember and that you'll show a status indicator.
 
 ### `/soul remember <fact>`
 Append the fact to the `## Accumulated Knowledge` section of `.soul/SOUL.md`.
