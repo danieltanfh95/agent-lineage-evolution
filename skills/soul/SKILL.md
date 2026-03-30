@@ -144,41 +144,40 @@ Steps:
 8. Confirm: "Imported <name> skill with N knowledge points and M warnings. Active next session."
 
 ### `/soul review`
-Review recently extracted patterns and optionally revert entries.
+Review what SOUL has recently learned and optionally undo entries.
 
 1. Read `.soul/staging/recent-extractions.jsonl`
-2. If the file doesn't exist or is empty: "No recent extractions to review."
-3. For each extraction entry, display:
-   - When it was extracted (timestamp) and which session turn
-   - Each pattern: type (correction/confirmation/preference), scope (repo/cross-project), summary, detail, source quote
-   - Which bullets were added to SOUL.md (soul_updates) and learned.md (genome_updates)
-4. Ask the user if they want to revert any entries. For each reverted entry:
+2. If the file doesn't exist or is empty: "Nothing to review — I haven't learned anything new recently."
+3. For each extraction entry, display in plain language:
+   - When it was learned and what triggered it
+   - Each pattern: what I learned, why, and a quote from the conversation
+   - Whether it applies to this project only or all your projects
+4. Ask the user if they want to undo any entries. For each undone entry:
    - Remove the corresponding bullet from `## Accumulated Knowledge` or `## Predecessor Warnings` in `.soul/SOUL.md`
    - Remove the corresponding line from `~/.soul/genome/learned.md` if applicable
    - Log a `user_revert` event to `.soul/log/soul-activity.jsonl`:
      ```json
      {"timestamp": "...", "session": "...", "event": "user_revert", "pattern_summary": "...", "section": "...", "reverted_bullet": "..."}
      ```
-5. After processing, confirm: "Reverted N entries. SOUL.md updated."
-6. Optionally clear the recent-extractions log: "Clear extraction history? (y/n)"
+5. After processing, confirm: "Done — removed N entries from my memory."
+6. Optionally: "Want me to clear the review history too?"
 
 ### `/soul approve-compaction`
-Review and apply a pending compaction (when `compaction.requireApproval` is true in config).
+Review a pending knowledge compression before it's applied.
 
 1. Check if `.soul/staging/pending-compaction.md` exists
-2. If not: "No compaction pending approval."
-3. Read and display the diff from `.soul/staging/last-compaction-diff.txt`
-4. Show before/after sizes
-5. Ask the user to approve or reject
-6. If approved:
+2. If not: "No pending compression to review."
+3. Show what changed: display the diff in a readable format with before/after sizes
+4. Ask the user to approve or reject
+5. If approved:
    - Copy `.soul/staging/pending-compaction.md` to `.soul/SOUL.md`
    - Log `user_approve_compaction` event to `.soul/log/soul-activity.jsonl`
    - Delete staging files (pending-compaction.md, last-compaction-diff.txt)
-   - Confirm: "Compaction applied."
-7. If rejected:
+   - Confirm: "Applied — my knowledge is now up to date."
+6. If rejected:
    - Log `user_reject_compaction` event to `.soul/log/soul-activity.jsonl`
    - Delete staging files
-   - Confirm: "Compaction rejected, SOUL.md unchanged."
+   - Confirm: "Discarded — keeping my current knowledge as-is."
 
 ### `/soul skills`
 List all available skills and their source.

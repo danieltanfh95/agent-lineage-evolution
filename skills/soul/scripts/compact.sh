@@ -164,7 +164,7 @@ if [ "$BULLET_LOSS_REJECTED" = true ]; then
   mkdir -p "$STAGING_DIR"
   echo "$UPDATED_SOUL" > "${STAGING_DIR}/rejected-compaction.md"
   # Relay notification to Stop hook
-  echo "Compaction rejected — section lost >${MAX_BULLET_LOSS}% bullets. See .soul/staging/rejected-compaction.md" \
+  echo "Compaction dropped too much knowledge (>${MAX_BULLET_LOSS}% in a section). Saved for review with /soul review" \
     > "/tmp/.soul-compact-notify-${SESSION_ID}"
   exit 0
 fi
@@ -186,10 +186,10 @@ BULLETS_AFTER_JSON=$(echo "$AFTER_COUNTS" | awk -F: '{printf "\"%s\": %s, ", $1,
 # --- Conditional write based on requireApproval ---
 if [ "$REQUIRE_APPROVAL" = "true" ]; then
   echo "$UPDATED_SOUL" > "${STAGING_DIR}/pending-compaction.md"
-  NOTIFY_MSG="Compaction ready for review (${OLD_K}k -> ${NEW_K}k chars) -- /soul approve-compaction"
+  NOTIFY_MSG="Knowledge compressed (${OLD_K}k → ${NEW_K}k chars), waiting for your approval. Run /soul approve-compaction"
 else
   echo "$UPDATED_SOUL" > "$SOUL_FILE"
-  NOTIFY_MSG="Compacted knowledge (${OLD_K}k -> ${NEW_K}k chars)"
+  NOTIFY_MSG="Knowledge compressed (${OLD_K}k → ${NEW_K}k chars)"
 fi
 
 # --- Log the compaction ---
@@ -254,7 +254,7 @@ if [ "$AUTO_COMMIT" = "true" ] && command -v git &>/dev/null; then
     if [ -d "${SOUL_DIR}/exports" ]; then
       git -C "$CWD" add "${SOUL_DIR}/exports" 2>/dev/null || true
     fi
-    NOTIFY_MSG="${NOTIFY_MSG}; changes staged -- commit when ready"
+    NOTIFY_MSG="${NOTIFY_MSG}. Changes staged — commit when you're ready"
   fi
 fi
 

@@ -201,11 +201,11 @@ If no violation is detected, reply: {\"violated\": false, \"invariant\": null, \
 
       if [ "$VIOLATION_COUNT" -ge "$KILL_AFTER_N" ]; then
         CONSCIENCE_DECISION=$(jq -n \
-          --arg reason "CONSCIENCE: Repeated violation (${VIOLATION_COUNT}/${KILL_AFTER_N}). Invariant: ${INVARIANT}. ${REASON}. Session should be restarted to re-imprint soul." \
+          --arg reason "SOUL: Rule violated ${VIOLATION_COUNT} times (${INVARIANT}: ${REASON}). Please restart the session so I can reset." \
           '{decision: "block", reason: $reason}')
       else
         CONSCIENCE_DECISION=$(jq -n \
-          --arg reason "CONSCIENCE: Violation detected (${VIOLATION_COUNT}/${KILL_AFTER_N}). Invariant: ${INVARIANT}. ${REASON}. Fix this before continuing." \
+          --arg reason "SOUL: Rule violation (${VIOLATION_COUNT}/${KILL_AFTER_N}). ${INVARIANT}: ${REASON}. Please fix this before continuing." \
           '{decision: "block", reason: $reason}')
       fi
     else
@@ -217,7 +217,7 @@ If no violation is detected, reply: {\"violated\": false, \"invariant\": null, \
 
       # Notify on keyword-triggered audits that passed
       if [ "$KEYWORD_MATCH" = "true" ]; then
-        NOTIFICATION_MSG="Audit passed (keyword operation reviewed)"
+        NOTIFICATION_MSG="All good"
       fi
     fi
   fi
@@ -278,7 +278,7 @@ ${LATEST_USER_MSG}"
     if [ "$TIER2_VERDICT" = "YES" ]; then
       CORRECTION_DETECTED=true
       touch "$CORRECTION_FLAG_FILE"
-      NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Correction detected, extraction queued"
+      NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Noticed a correction, will learn from it soon"
     fi
   fi
 fi
@@ -580,7 +580,7 @@ fi
 
 # Add pattern notification
 if [ "$PATTERNS_APPLIED" = "true" ] && [ "$NOTIFICATION_PATTERNS" -gt 0 ]; then
-  NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Extracted ${NOTIFICATION_PATTERNS} patterns, applied to SOUL.md -- /soul review to inspect"
+  NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Learned ${NOTIFICATION_PATTERNS} pattern(s) from this session. Run /soul review to see them"
 fi
 
 # Build output
