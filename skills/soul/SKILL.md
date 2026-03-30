@@ -5,7 +5,7 @@ description: >
   Automatically remembers your role, preferences, and project knowledge
   via rolling compaction. Use /soul to configure.
 user-invocable: true
-argument-hint: "setup | remember <fact> | update | show"
+argument-hint: "setup | remember <fact> | update | show | review | approve-compaction"
 hooks:
   SessionStart:
     - hooks:
@@ -67,14 +67,29 @@ No specialized skills defined.
 5. Create `.soul/config.json` with default settings:
 ```json
 {
+  "conscience": {
+    "model": "haiku",
+    "auditEveryNTurns": 5,
+    "alwaysAuditKeywords": ["commit", "delete", "deploy", "push", "force", "drop", "remove", "destroy"],
+    "killAfterNViolations": 3,
+    "contextTurns": 10,
+    "correctionDetection": true,
+    "correctionKeywords": ["no", "don't", "stop", "instead", "wrong", "not what I"]
+  },
+  "genome": {
+    "order": ["base", "learned"]
+  },
   "compaction": {
     "model": "sonnet",
     "suggestAtPercent": 15,
-    "autoCommit": true
+    "autoCommit": true,
+    "requireApproval": false,
+    "maxBulletLossPercent": 50
   },
-  "conscience": {
-    "model": "haiku",
-    "auditEveryNTurns": 5
+  "patterns": {
+    "model": "sonnet",
+    "extractEveryKTokens": 20,
+    "promoteToCrossProject": true
   }
 }
 ```
@@ -101,6 +116,77 @@ Ask what the user wants to change (role, rules, or knowledge), then update the r
 
 ### `/soul show`
 Read `.soul/SOUL.md` and display the Identity, Rules, and Knowledge in plain language. Do NOT show raw markdown or file paths.
+
+### `/soul export <skill-name> [--to <path>] [--genome]`
+Export a skill from `## Skills` as a standalone, shareable Claude Code skill with relevant knowledge baked in.
+
+1. Run the export script: `"$CLAUDE_PROJECT_DIR"/.soul/hooks/export-skill.sh <skill-name> [options]`
+   - If that doesn't exist, try: find `export-skill.sh` in the skill's scripts directory
+2. If no skill name given, read the `## Skills` section and list available skills for the user to pick
+3. Report what was created:
+   - Default: "Exported to .soul/exports/<name>/ — push to GitHub and others can install with `npx skills add <owner>/<repo> --skill <name>`"
+   - With `--genome`: "Saved to genome. Skill is now available in all your projects."
+   - With `--to <path>`: "Exported to <path>/"
+
+### `/soul import <source>`
+Import a shared skill into your project. `<source>` can be:
+- A local directory path containing a SKILL.md
+- `genome:<skill-name>` to import from `~/.soul/genome/skills/<name>/`
+
+Steps:
+1. Read the source `SKILL.md`
+2. Extract the role description from `# Role` section
+3. Check if `mode: fork` should be set (look for `context: fork` in YAML frontmatter)
+4. Append the skill to `## Skills` section of `.soul/SOUL.md` as a `### <name>` block
+5. Read `# Relevant Knowledge` section — merge new bullets into `## Accumulated Knowledge` in SOUL.md, skipping duplicates
+6. Read `# Warnings` section — merge new bullets into `## Predecessor Warnings` in SOUL.md, skipping duplicates
+7. If `# Invariants` section exists, show the invariants to the user and ask if they want to add them to `.soul/invariants/` (invariants are human-authored — never auto-merge)
+8. Confirm: "Imported <name> skill with N knowledge points and M warnings. Active next session."
+
+### `/soul review`
+Review recently extracted patterns and optionally revert entries.
+
+1. Read `.soul/staging/recent-extractions.jsonl`
+2. If the file doesn't exist or is empty: "No recent extractions to review."
+3. For each extraction entry, display:
+   - When it was extracted (timestamp) and which session turn
+   - Each pattern: type (correction/confirmation/preference), scope (repo/cross-project), summary, detail, source quote
+   - Which bullets were added to SOUL.md (soul_updates) and learned.md (genome_updates)
+4. Ask the user if they want to revert any entries. For each reverted entry:
+   - Remove the corresponding bullet from `## Accumulated Knowledge` or `## Predecessor Warnings` in `.soul/SOUL.md`
+   - Remove the corresponding line from `~/.soul/genome/learned.md` if applicable
+   - Log a `user_revert` event to `.soul/log/soul-activity.jsonl`:
+     ```json
+     {"timestamp": "...", "session": "...", "event": "user_revert", "pattern_summary": "...", "section": "...", "reverted_bullet": "..."}
+     ```
+5. After processing, confirm: "Reverted N entries. SOUL.md updated."
+6. Optionally clear the recent-extractions log: "Clear extraction history? (y/n)"
+
+### `/soul approve-compaction`
+Review and apply a pending compaction (when `compaction.requireApproval` is true in config).
+
+1. Check if `.soul/staging/pending-compaction.md` exists
+2. If not: "No compaction pending approval."
+3. Read and display the diff from `.soul/staging/last-compaction-diff.txt`
+4. Show before/after sizes
+5. Ask the user to approve or reject
+6. If approved:
+   - Copy `.soul/staging/pending-compaction.md` to `.soul/SOUL.md`
+   - Log `user_approve_compaction` event to `.soul/log/soul-activity.jsonl`
+   - Delete staging files (pending-compaction.md, last-compaction-diff.txt)
+   - Confirm: "Compaction applied."
+7. If rejected:
+   - Log `user_reject_compaction` event to `.soul/log/soul-activity.jsonl`
+   - Delete staging files
+   - Confirm: "Compaction rejected, SOUL.md unchanged."
+
+### `/soul skills`
+List all available skills and their source.
+
+1. Read `## Skills` section of `.soul/SOUL.md` for repo-level skills
+2. Check `~/.soul/genome/skills/` for genome-level skills not overridden by repo
+3. Check `.soul/exports/` for exported snapshots
+4. Display each skill with: name, description, source (repo/genome), and whether an export exists
 
 ## Behavior When SOUL Is Active
 

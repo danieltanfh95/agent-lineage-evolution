@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # SOUL Framework — Rolling Compaction (PostCompact Hook)
-# Reads the session transcript, extracts recent context, and merges it into SOUL.md
+# Two compaction targets:
+#   1. .soul/SOUL.md — repo-specific knowledge (always)
+#   2. ~/.soul/genome/learned.md — cross-project patterns (when over size threshold)
+# Validation: section-level bullet count comparison, diff saving, optional approval gate
 # Input: JSON on stdin with session_id, cwd, trigger, transcript_path
-# Output: None (updates SOUL.md directly)
+# Output: None (PostCompact stdout is discarded — notifications relay via temp file to Stop hook)
 
 set -euo pipefail
 
@@ -12,28 +15,48 @@ SOUL_DIR="${CWD}/.soul"
 SOUL_FILE="${SOUL_DIR}/SOUL.md"
 CONFIG_FILE="${SOUL_DIR}/config.json"
 LOG_DIR="${SOUL_DIR}/log"
+STAGING_DIR="${SOUL_DIR}/staging"
 
 # Bail if no .soul directory or SOUL.md
 if [ ! -d "$SOUL_DIR" ] || [ ! -f "$SOUL_FILE" ]; then
   exit 0
 fi
 
+# --- Source shared library ---
+if [ -f "${SOUL_DIR}/hooks/lib.sh" ]; then
+  source "${SOUL_DIR}/hooks/lib.sh"
+fi
+
+# --- Session tracking ---
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+
 # --- Read config ---
 if [ -f "$CONFIG_FILE" ]; then
   AUTO_COMMIT=$(jq -r '.compaction.autoCommit // true' "$CONFIG_FILE")
-  COMPACT_MODEL=$(jq -r '.compaction.model // "sonnet"' "$CONFIG_FILE")
+  COMPACT_MODEL=$(jq -r '.compaction.model // .conscience.model // "haiku"' "$CONFIG_FILE")
+  REQUIRE_APPROVAL=$(jq -r '.compaction.requireApproval // false' "$CONFIG_FILE")
+  MAX_BULLET_LOSS=$(jq -r '.compaction.maxBulletLossPercent // 50' "$CONFIG_FILE")
 else
   AUTO_COMMIT="true"
-  COMPACT_MODEL="sonnet"
+  COMPACT_MODEL="haiku"
+  REQUIRE_APPROVAL="false"
+  MAX_BULLET_LOSS=50
 fi
 
-# Map config model name to Claude model ID
-case "$COMPACT_MODEL" in
-  haiku)   COMPACT_MODEL_ID="claude-haiku-4-5-20251001" ;;
-  sonnet)  COMPACT_MODEL_ID="claude-sonnet-4-6" ;;
-  opus)    COMPACT_MODEL_ID="claude-opus-4-6" ;;
-  *)       COMPACT_MODEL_ID="claude-haiku-4-5-20251001" ;;
-esac
+COMPACT_MODEL_ID=$(map_model_id "$COMPACT_MODEL")
+
+# --- Helper: count bullets per section ---
+# Output format: "Section Name:count" per line
+count_section_bullets() {
+  local content="$1"
+  local sections=("Accumulated Knowledge" "Predecessor Warnings" "Current Understanding" "Identity" "Skills")
+
+  for section in "${sections[@]}"; do
+    local count
+    count=$(echo "$content" | sed -n "/^## ${section}$/,/^## /{/^- /p}" | wc -l | tr -d ' ')
+    echo "${section}:${count}"
+  done
+}
 
 # --- Read transcript path ---
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""')
@@ -43,8 +66,6 @@ SESSION_SUMMARY=""
 
 # Try to extract recent context from the transcript
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  # Extract the last ~50 entries from the transcript for context
-  # Focus on assistant messages which contain the work done
   SESSION_SUMMARY=$(tail -100 "$TRANSCRIPT_PATH" | jq -r '
     select(.type == "assistant" or .type == "tool_result")
     | if .type == "assistant" then
@@ -66,8 +87,9 @@ if [ -z "$SESSION_SUMMARY" ] && [ -z "$GIT_SUMMARY" ]; then
   exit 0
 fi
 
-# --- Read current SOUL.md ---
+# --- Read current SOUL.md and count bullets BEFORE compaction ---
 CURRENT_SOUL=$(cat "$SOUL_FILE")
+BEFORE_COUNTS=$(count_section_bullets "$CURRENT_SOUL")
 
 # --- Build compaction prompt ---
 COMPACT_PROMPT="You are a soul compaction system for the SOUL framework. Your job is to merge new session knowledge into an existing SOUL.md file.
@@ -96,52 +118,147 @@ INSTRUCTIONS:
 Output ONLY the updated SOUL.md content. No markdown fencing, no preamble, no explanation. Just the raw markdown content of the updated file."
 
 # --- Run compaction via claude -p ---
-# claude -p --output-format json outputs a JSON array; the result text is in the last element's .result field
 RAW_OUTPUT=$(echo "$COMPACT_PROMPT" | timeout 60 claude -p --model "$COMPACT_MODEL_ID" --output-format json 2>/dev/null) || true
 UPDATED_SOUL=$(echo "$RAW_OUTPUT" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
 
-# Validate we got something reasonable back
+# --- Basic validation ---
 if [ -z "$UPDATED_SOUL" ] || [ ${#UPDATED_SOUL} -lt 50 ]; then
-  # Compaction failed or returned garbage — keep existing soul
-  mkdir -p "$LOG_DIR"
-  jq -cn \
-    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg error "Compaction returned empty or too-short result" \
-    '{timestamp: $ts, event: "compaction_failed", error: $error}' \
-    >> "${LOG_DIR}/conscience.jsonl"
+  log_soul_event "compaction_rejected" \
+    --arg reason "empty_or_short" \
+    --arg error "Compaction returned empty or too-short result"
   exit 0
 fi
 
-# Validate it still has the expected structure
 if ! echo "$UPDATED_SOUL" | grep -q "## Identity"; then
-  mkdir -p "$LOG_DIR"
-  jq -cn \
-    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg error "Compaction result missing ## Identity section" \
-    '{timestamp: $ts, event: "compaction_rejected", error: $error}' \
-    >> "${LOG_DIR}/conscience.jsonl"
+  log_soul_event "compaction_rejected" \
+    --arg reason "missing_identity" \
+    --arg error "Compaction result missing ## Identity section"
   exit 0
 fi
 
-# --- Write updated SOUL.md ---
-echo "$UPDATED_SOUL" > "$SOUL_FILE"
+# --- Section-level bullet count validation ---
+AFTER_COUNTS=$(count_section_bullets "$UPDATED_SOUL")
+BULLET_LOSS_REJECTED=false
+
+while IFS=: read -r section before_count; do
+  after_count=$(echo "$AFTER_COUNTS" | grep "^${section}:" | cut -d: -f2)
+  after_count=${after_count:-0}
+  before_count=${before_count:-0}
+
+  if [ "$before_count" -gt 0 ]; then
+    loss_pct=$(( (before_count - after_count) * 100 / before_count ))
+    if [ "$loss_pct" -gt "$MAX_BULLET_LOSS" ]; then
+      BULLET_LOSS_REJECTED=true
+      log_soul_event "compaction_rejected" \
+        --arg reason "bullet_loss" \
+        --arg section "$section" \
+        --argjson before "$before_count" \
+        --argjson after "$after_count" \
+        --argjson loss_pct "$loss_pct"
+    fi
+  fi
+done <<< "$BEFORE_COUNTS"
+
+if [ "$BULLET_LOSS_REJECTED" = true ]; then
+  # Save rejected version for debugging
+  mkdir -p "$STAGING_DIR"
+  echo "$UPDATED_SOUL" > "${STAGING_DIR}/rejected-compaction.md"
+  # Relay notification to Stop hook
+  echo "Compaction rejected — section lost >${MAX_BULLET_LOSS}% bullets. See .soul/staging/rejected-compaction.md" \
+    > "/tmp/.soul-compact-notify-${SESSION_ID}"
+  exit 0
+fi
+
+# --- Save diff to staging ---
+mkdir -p "$STAGING_DIR"
+diff <(echo "$CURRENT_SOUL") <(echo "$UPDATED_SOUL") > "${STAGING_DIR}/last-compaction-diff.txt" 2>/dev/null || true
+
+# Calculate sizes for notification
+OLD_SIZE=${#CURRENT_SOUL}
+NEW_SIZE=${#UPDATED_SOUL}
+OLD_K=$(awk "BEGIN {printf \"%.1f\", $OLD_SIZE / 1000}")
+NEW_K=$(awk "BEGIN {printf \"%.1f\", $NEW_SIZE / 1000}")
+
+# --- Build bullet count summary for log ---
+BULLETS_BEFORE_JSON=$(echo "$BEFORE_COUNTS" | awk -F: '{printf "\"%s\": %s, ", $1, $2}' | sed 's/, $//')
+BULLETS_AFTER_JSON=$(echo "$AFTER_COUNTS" | awk -F: '{printf "\"%s\": %s, ", $1, $2}' | sed 's/, $//')
+
+# --- Conditional write based on requireApproval ---
+if [ "$REQUIRE_APPROVAL" = "true" ]; then
+  echo "$UPDATED_SOUL" > "${STAGING_DIR}/pending-compaction.md"
+  NOTIFY_MSG="Compaction ready for review (${OLD_K}k -> ${NEW_K}k chars) -- /soul approve-compaction"
+else
+  echo "$UPDATED_SOUL" > "$SOUL_FILE"
+  NOTIFY_MSG="Compacted knowledge (${OLD_K}k -> ${NEW_K}k chars)"
+fi
 
 # --- Log the compaction ---
-mkdir -p "$LOG_DIR"
-jq -cn \
-  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+log_soul_event "compaction" \
   --arg trigger "$(echo "$INPUT" | jq -r '.trigger // "unknown"')" \
-  --argjson old_size "${#CURRENT_SOUL}" \
-  --argjson new_size "${#UPDATED_SOUL}" \
-  '{timestamp: $ts, event: "compaction", trigger: $trigger, old_size_bytes: $old_size, new_size_bytes: $new_size}' \
-  >> "${LOG_DIR}/conscience.jsonl"
+  --argjson old_size "$OLD_SIZE" \
+  --argjson new_size "$NEW_SIZE" \
+  --argjson bullets_before "{ $BULLETS_BEFORE_JSON }" \
+  --argjson bullets_after "{ $BULLETS_AFTER_JSON }"
 
-# --- Auto-commit if enabled and in a git repo ---
+# ============================================================
+# PHASE 2: GENOME COMPACTION (learned.md)
+# Compact ~/.soul/genome/learned.md when it exceeds size threshold.
+# ============================================================
+
+GLOBAL_GENOME_DIR="${HOME}/.soul/genome"
+LEARNED_FILE="${GLOBAL_GENOME_DIR}/learned.md"
+GENOME_COMPACT_THRESHOLD=5000
+
+if [ -f "$LEARNED_FILE" ]; then
+  LEARNED_SIZE=$(wc -c < "$LEARNED_FILE" | tr -d ' ')
+
+  if [ "$LEARNED_SIZE" -gt "$GENOME_COMPACT_THRESHOLD" ]; then
+    CURRENT_LEARNED=$(cat "$LEARNED_FILE")
+
+    GENOME_COMPACT_PROMPT="You are a genome compaction system for the SOUL framework. Your job is to compress a learned patterns file that has grown from accumulated pattern extractions across multiple projects and sessions.
+
+CURRENT LEARNED PATTERNS FILE:
+${CURRENT_LEARNED}
+
+INSTRUCTIONS:
+1. Deduplicate patterns that say the same thing in different words
+2. Merge related patterns into single, concise statements
+3. Remove patterns that are too project-specific (they belong in a repo's SOUL.md, not the global genome)
+4. Preserve the file structure: # Learned Patterns header, intro line, ## Patterns section
+5. Keep each pattern as a single bullet point (- prefix)
+6. Aim to reduce the file to roughly half its current size while preserving all unique information
+7. Organize patterns by theme (communication, process, coding style, etc.) using ### subheadings under ## Patterns
+
+Output ONLY the updated file content. No markdown fencing, no preamble, no explanation."
+
+    GENOME_RAW=$(echo "$GENOME_COMPACT_PROMPT" | timeout 60 claude -p --model "$COMPACT_MODEL_ID" --output-format json 2>/dev/null) || true
+    UPDATED_LEARNED=$(echo "$GENOME_RAW" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
+
+    if [ -n "$UPDATED_LEARNED" ] && [ ${#UPDATED_LEARNED} -gt 50 ] && echo "$UPDATED_LEARNED" | grep -q "Learned Patterns"; then
+      echo "$UPDATED_LEARNED" > "$LEARNED_FILE"
+
+      log_soul_event "genome_compaction" \
+        --argjson old_size "$LEARNED_SIZE" \
+        --argjson new_size "${#UPDATED_LEARNED}"
+    else
+      log_soul_event "genome_compaction" \
+        --arg error "Genome compaction returned invalid result"
+    fi
+  fi
+fi
+
+# --- Auto-stage if enabled (stage only, never commit) ---
 if [ "$AUTO_COMMIT" = "true" ] && command -v git &>/dev/null; then
   if git -C "$CWD" rev-parse --git-dir &>/dev/null 2>&1; then
     git -C "$CWD" add "$SOUL_FILE" 2>/dev/null || true
-    git -C "$CWD" commit -m "soul: rolling compaction" --no-verify 2>/dev/null || true
+    if [ -d "${SOUL_DIR}/exports" ]; then
+      git -C "$CWD" add "${SOUL_DIR}/exports" 2>/dev/null || true
+    fi
+    NOTIFY_MSG="${NOTIFY_MSG}; changes staged -- commit when ready"
   fi
 fi
+
+# --- Relay notification to next Stop hook invocation ---
+echo "$NOTIFY_MSG" > "/tmp/.soul-compact-notify-${SESSION_ID}"
 
 exit 0
