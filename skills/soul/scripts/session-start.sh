@@ -18,9 +18,14 @@ if [ ! -d "$SOUL_DIR" ]; then
   exit 0
 fi
 
-# --- Source shared library ---
+# --- Source shared library (with fallback stubs if missing) ---
 if [ -f "${SOUL_DIR}/hooks/lib.sh" ]; then
   source "${SOUL_DIR}/hooks/lib.sh"
+fi
+if ! type map_model_id &>/dev/null; then
+  map_model_id() { echo "claude-haiku-4-5-20251001"; }
+  log_soul_event() { :; }
+  rotate_log_if_needed() { :; }
 fi
 
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
@@ -38,7 +43,7 @@ assembled=""
 
 if [ -d "$GLOBAL_GENOME_DIR" ]; then
   # Read genome order from config, or fall back to alphabetical
-  if [ -f "$CONFIG_FILE" ]; then
+  if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" 2>/dev/null; then
     genome_order=$(jq -r '.genome.order // [] | .[]' "$CONFIG_FILE" 2>/dev/null)
   else
     genome_order=""

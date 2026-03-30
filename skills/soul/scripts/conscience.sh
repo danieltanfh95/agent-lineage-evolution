@@ -22,9 +22,13 @@ if [ ! -d "$SOUL_DIR" ]; then
   exit 0
 fi
 
-# --- Source shared library ---
+# --- Source shared library (with fallback stubs if missing) ---
 if [ -f "${SOUL_DIR}/hooks/lib.sh" ]; then
   source "${SOUL_DIR}/hooks/lib.sh"
+fi
+if ! type map_model_id &>/dev/null; then
+  map_model_id() { echo "claude-haiku-4-5-20251001"; }
+  log_soul_event() { :; }
 fi
 
 # --- Guard: prevent infinite loops ---
@@ -33,8 +37,8 @@ if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
   exit 0
 fi
 
-# --- Read config ---
-if [ -f "$CONFIG_FILE" ]; then
+# --- Read config (validate JSON first to avoid set -e crash) ---
+if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" 2>/dev/null; then
   AUDIT_MODEL=$(jq -r '.conscience.model // "haiku"' "$CONFIG_FILE")
   AUDIT_EVERY_N=$(jq -r '.conscience.auditEveryNTurns // 5' "$CONFIG_FILE")
   KILL_AFTER_N=$(jq -r '.conscience.killAfterNViolations // 3' "$CONFIG_FILE")
@@ -179,10 +183,15 @@ Reply with ONLY valid JSON (no markdown fencing, no explanation):
 If no violation is detected, reply: {\"violated\": false, \"invariant\": null, \"reason\": null}"
 
     RAW_OUTPUT=$(echo "$AUDIT_PROMPT" | timeout 30 claude -p --model "$AUDIT_MODEL_ID" --output-format json 2>/dev/null) || true
+
+    if [ -z "$RAW_OUTPUT" ]; then
+      log_soul_event "audit_timeout" --argjson turn "$TURN_COUNT"
+    fi
+
     AUDIT_RESULT=$(echo "$RAW_OUTPUT" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
 
-    # Strip markdown code fencing if present
-    AUDIT_RESULT=$(echo "$AUDIT_RESULT" | sed 's/^```json//; s/^```//; s/```$//' | tr -d '\n' | sed 's/^[[:space:]]*//')
+    # Strip markdown code fencing if present (delete fence lines, preserve content newlines)
+    AUDIT_RESULT=$(echo "$AUDIT_RESULT" | sed '/^```/d')
 
     VIOLATED=$(echo "$AUDIT_RESULT" | jq -r '.violated // false' 2>/dev/null) || VIOLATED="false"
 
@@ -212,7 +221,7 @@ If no violation is detected, reply: {\"violated\": false, \"invariant\": null, \
       # Log audit pass
       log_soul_event "audit_pass" \
         --argjson turn "$TURN_COUNT" \
-        --arg keyword_triggered "${KEYWORD_MATCH:-false}" \
+        --argjson keyword_triggered "${KEYWORD_MATCH:-false}" \
         --argjson context_turns_sent "$CONTEXT_TURNS"
 
       # Notify on keyword-triggered audits that passed
@@ -257,7 +266,7 @@ if [ "$CORRECTION_DETECTION" = "true" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$T
 
     log_soul_event "correction_tier1" \
       --argjson turn "$TURN_COUNT" \
-      --arg keyword_matched "true" \
+      --argjson keyword_matched true \
       --arg user_msg_snippet "$(echo "$LATEST_USER_MSG" | head -c 100)"
 
     # Tier 2: Haiku micro-prompt to confirm it's actually a correction
@@ -420,8 +429,8 @@ Rules:
   RAW_OUTPUT=$(echo "$EXTRACT_PROMPT" | timeout 60 claude -p --model "$PATTERN_MODEL_ID" --output-format json 2>/dev/null) || true
   EXTRACT_RESULT=$(echo "$RAW_OUTPUT" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
 
-  # Strip markdown code fencing
-  EXTRACT_RESULT=$(echo "$EXTRACT_RESULT" | sed 's/^```json//; s/^```//; s/```$//' | tr -d '\n' | sed 's/^[[:space:]]*//')
+  # Strip markdown code fencing (delete fence lines, preserve content newlines)
+  EXTRACT_RESULT=$(echo "$EXTRACT_RESULT" | sed '/^```/d')
 
   # Validate JSON
   if ! echo "$EXTRACT_RESULT" | jq empty 2>/dev/null; then
@@ -458,10 +467,10 @@ Rules:
           AK_LINE=$(grep -n "^## Accumulated Knowledge" "$SOUL_FILE" | head -1 | cut -d: -f1)
           NEXT_SECTION=$(tail -n +"$((AK_LINE + 1))" "$SOUL_FILE" | grep -n "^## " | head -1 | cut -d: -f1)
           if [ -n "$NEXT_SECTION" ]; then
-            INSERT_LINE=$((AK_LINE + NEXT_SECTION - 1))
-            sed -i '' "${INSERT_LINE}i\\
+            INSERT_LINE=$((AK_LINE + NEXT_SECTION))
+            sed "${INSERT_LINE}i\\
 - ${bullet}
-" "$SOUL_FILE"
+" "$SOUL_FILE" > "${SOUL_FILE}.tmp" && mv "${SOUL_FILE}.tmp" "$SOUL_FILE"
           else
             echo "- ${bullet}" >> "$SOUL_FILE"
           fi
@@ -480,10 +489,10 @@ Rules:
           PW_LINE=$(grep -n "^## Predecessor Warnings" "$SOUL_FILE" | head -1 | cut -d: -f1)
           NEXT_SECTION=$(tail -n +"$((PW_LINE + 1))" "$SOUL_FILE" | grep -n "^## " | head -1 | cut -d: -f1)
           if [ -n "$NEXT_SECTION" ]; then
-            INSERT_LINE=$((PW_LINE + NEXT_SECTION - 1))
-            sed -i '' "${INSERT_LINE}i\\
+            INSERT_LINE=$((PW_LINE + NEXT_SECTION))
+            sed "${INSERT_LINE}i\\
 - ${bullet}
-" "$SOUL_FILE"
+" "$SOUL_FILE" > "${SOUL_FILE}.tmp" && mv "${SOUL_FILE}.tmp" "$SOUL_FILE"
           else
             echo "- ${bullet}" >> "$SOUL_FILE"
           fi
@@ -528,7 +537,7 @@ LEARNED_INIT
     --argjson turn "$TURN_COUNT" \
     --argjson pattern_count "$PATTERN_COUNT" \
     --argjson patterns "$PATTERN_SUMMARIES" \
-    --arg soul_modified "$SOUL_MODIFIED" \
+    --argjson soul_modified "$SOUL_MODIFIED" \
     --arg model "$PATTERN_MODEL_ID" \
     --argjson transcript_offset "$TRANSCRIPT_SIZE"
 
@@ -593,7 +602,10 @@ fi
 
 # Build output
 if [ -n "$CONSCIENCE_DECISION" ]; then
-  # Blocking violation takes priority
+  # Blocking violation — append any pending notifications so they aren't lost
+  if [ -n "$NOTIFICATION_MSG" ]; then
+    CONSCIENCE_DECISION=$(echo "$CONSCIENCE_DECISION" | jq --arg note " (Also: ${NOTIFICATION_MSG})" '.reason += $note')
+  fi
   echo "$CONSCIENCE_DECISION"
 elif [ -n "$NOTIFICATION_MSG" ]; then
   # Informational notification via systemMessage

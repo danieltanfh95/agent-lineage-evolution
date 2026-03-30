@@ -22,16 +22,21 @@ if [ ! -d "$SOUL_DIR" ] || [ ! -f "$SOUL_FILE" ]; then
   exit 0
 fi
 
-# --- Source shared library ---
+# --- Source shared library (with fallback stubs if missing) ---
 if [ -f "${SOUL_DIR}/hooks/lib.sh" ]; then
   source "${SOUL_DIR}/hooks/lib.sh"
+fi
+if ! type map_model_id &>/dev/null; then
+  map_model_id() { echo "claude-haiku-4-5-20251001"; }
+  log_soul_event() { :; }
+  rotate_log_if_needed() { :; }
 fi
 
 # --- Session tracking ---
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 
-# --- Read config ---
-if [ -f "$CONFIG_FILE" ]; then
+# --- Read config (validate JSON first to avoid set -e crash) ---
+if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" 2>/dev/null; then
   AUTO_COMMIT=$(jq -r '.compaction.autoCommit // true' "$CONFIG_FILE")
   COMPACT_MODEL=$(jq -r '.compaction.model // .conscience.model // "haiku"' "$CONFIG_FILE")
   REQUIRE_APPROVAL=$(jq -r '.compaction.requireApproval // false' "$CONFIG_FILE")
@@ -179,9 +184,9 @@ NEW_SIZE=${#UPDATED_SOUL}
 OLD_K=$(awk "BEGIN {printf \"%.1f\", $OLD_SIZE / 1000}")
 NEW_K=$(awk "BEGIN {printf \"%.1f\", $NEW_SIZE / 1000}")
 
-# --- Build bullet count summary for log ---
-BULLETS_BEFORE_JSON=$(echo "$BEFORE_COUNTS" | awk -F: '{printf "\"%s\": %s, ", $1, $2}' | sed 's/, $//')
-BULLETS_AFTER_JSON=$(echo "$AFTER_COUNTS" | awk -F: '{printf "\"%s\": %s, ", $1, $2}' | sed 's/, $//')
+# --- Build bullet count summary for log (use jq for safe JSON construction) ---
+BULLETS_BEFORE_JSON=$(echo "$BEFORE_COUNTS" | jq -Rc 'split(":") | {(.[0]): (.[1] | tonumber)}' | jq -sc 'add // {}') || BULLETS_BEFORE_JSON="{}"
+BULLETS_AFTER_JSON=$(echo "$AFTER_COUNTS" | jq -Rc 'split(":") | {(.[0]): (.[1] | tonumber)}' | jq -sc 'add // {}') || BULLETS_AFTER_JSON="{}"
 
 # --- Conditional write based on requireApproval ---
 if [ "$REQUIRE_APPROVAL" = "true" ]; then
@@ -197,8 +202,8 @@ log_soul_event "compaction" \
   --arg trigger "$(echo "$INPUT" | jq -r '.trigger // "unknown"')" \
   --argjson old_size "$OLD_SIZE" \
   --argjson new_size "$NEW_SIZE" \
-  --argjson bullets_before "{ $BULLETS_BEFORE_JSON }" \
-  --argjson bullets_after "{ $BULLETS_AFTER_JSON }"
+  --argjson bullets_before "$BULLETS_BEFORE_JSON" \
+  --argjson bullets_after "$BULLETS_AFTER_JSON"
 
 # ============================================================
 # PHASE 2: GENOME COMPACTION (learned.md)
@@ -259,6 +264,9 @@ if [ "$AUTO_COMMIT" = "true" ] && command -v git &>/dev/null; then
 fi
 
 # --- Relay notification to next Stop hook invocation ---
+# NOTE: Known race — if no Stop hook fires after this PostCompact (e.g., session ends
+# immediately), the notification is lost. This is best-effort by design; PostCompact
+# stdout is discarded by Claude Code, so temp file relay is the only option.
 echo "$NOTIFY_MSG" > "/tmp/.soul-compact-notify-${SESSION_ID}"
 
 exit 0
