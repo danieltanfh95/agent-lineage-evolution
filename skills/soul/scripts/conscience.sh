@@ -364,15 +364,21 @@ $(cat "$genome_file")
   fi
 
   # --- Build extraction prompt ---
-  EXTRACT_PROMPT="You are a pattern extraction system for the SOUL framework. Read this conversation transcript and identify:
+  EXTRACT_PROMPT="You are a pattern extraction system for the SOUL framework. Read this conversation transcript and identify three types of patterns:
 
-1. USER CORRECTIONS — where the user told the agent to stop doing something or do something differently
-2. CONFIRMED PATTERNS — where the user validated an approach (explicitly or by accepting without pushback on something non-obvious)
-3. BEHAVIORAL FEEDBACK — preferences about how to work (tone, process, style, communication)
+1. USER CORRECTIONS — the user told the agent to stop doing something or do something differently
+   Examples: \"no, don't do that\", \"stop using X\", \"use Y instead\", \"that's wrong\"
+
+2. CONFIRMED APPROACHES — the user validated a non-obvious choice the agent made
+   Examples: \"yes, exactly\", \"perfect, keep doing that\", \"good call\", user building on the agent's suggestion, user accepting an unusual approach without pushback (e.g., agent chose to bundle into one PR and user said \"yeah that was the right call\")
+   NOT confirmations: routine \"ok\", \"thanks\", \"got it\" — these are acknowledgments, not pattern signals
+
+3. BEHAVIORAL PREFERENCES — how the user wants to work (tone, process, style, communication)
+   Examples: \"don't summarize at the end\", \"keep responses shorter\", \"always ask before deleting\"
 
 Classify each pattern's scope:
 - \"repo\" — specific to this project (e.g., \"use Knex not raw SQL in this codebase\")
-- \"cross-project\" — applies everywhere (e.g., \"user prefers concise responses\" or \"user has a specific writing voice\")
+- \"cross-project\" — applies everywhere (e.g., \"user prefers concise responses\")
 
 CURRENT SOUL.MD:
 ${CURRENT_SOUL}
@@ -390,23 +396,25 @@ Output ONLY valid JSON (no markdown fencing):
       \"type\": \"correction|confirmation|preference\",
       \"scope\": \"repo|cross-project\",
       \"summary\": \"one-line description\",
-      \"detail\": \"what to do differently and why\",
+      \"detail\": \"for corrections: what to do differently and why. for confirmations: what worked well and why it should be repeated. for preferences: the specific preference and when it applies\",
       \"source\": \"brief quote from transcript\"
     }
   ],
   \"soul_updates\": {
-    \"accumulated_knowledge\": [\"new bullet points to add\"],
-    \"predecessor_warnings\": [\"new warnings to add\"]
+    \"accumulated_knowledge\": [\"new bullet points to add — include both corrections (what NOT to do) and confirmations (what TO keep doing)\"],
+    \"predecessor_warnings\": [\"new warnings to add (from corrections only)\"]
   },
   \"genome_updates\": [\"new lines for ~/.soul/genome/learned.md\"]
 }
 
 Rules:
 - Only extract patterns the user explicitly expressed or clearly demonstrated
-- Do not infer preferences from silence
+- Do not infer preferences from silence — routine acknowledgments are not confirmations
+- A confirmation requires the user to validate a choice that was non-obvious or non-default
 - If no patterns found, return empty arrays for all fields
 - Cross-project patterns must be genuinely universal, not project-specific
-- Do not duplicate patterns already present in SOUL.md or the genome"
+- Do not duplicate patterns already present in SOUL.md or the genome
+- Balance corrections and confirmations — both are valuable signals"
 
   # --- Run extraction via claude -p ---
   RAW_OUTPUT=$(echo "$EXTRACT_PROMPT" | timeout 60 claude -p --model "$PATTERN_MODEL_ID" --output-format json 2>/dev/null) || true
