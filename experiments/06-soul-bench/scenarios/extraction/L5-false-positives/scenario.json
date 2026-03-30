@@ -1,0 +1,64 @@
+{
+  "scenario": "extraction-eval-L5",
+  "transcript_source": "synthetic",
+  "difficulty": 5,
+  "description": "False positive traps — navigational 'no', routine acknowledgments, quoted corrections, and domain uses of correction keywords that should NOT be extracted as patterns",
+  "turns": [
+    {"role": "user", "text": "I need to build an error handling system for this API."},
+    {"role": "assistant", "text": "I'll set up a global error handler. Should I start with the middleware or the error classes?"},
+    {"role": "user", "text": "No, start with the error classes first. We need NotFoundError, ValidationError, and AuthError."},
+    {"role": "assistant", "text": "Got it. Here are the error classes:\n\n```python\nclass APIError(Exception):\n    def __init__(self, message, status_code):\n        self.message = message\n        self.status_code = status_code\n\nclass NotFoundError(APIError):\n    def __init__(self, resource='Resource'):\n        super().__init__(f'{resource} not found', 404)\n\nclass ValidationError(APIError):\n    def __init__(self, message='Invalid input'):\n        super().__init__(message, 400)\n\nclass AuthError(APIError):\n    def __init__(self, message='Unauthorized'):\n        super().__init__(message, 401)\n```"},
+    {"role": "user", "text": "Ok. Now the middleware."},
+    {"role": "assistant", "text": "Here's the error handling middleware:\n\n```python\n@app.errorhandler(APIError)\ndef handle_api_error(error):\n    return jsonify({\n        'error': error.__class__.__name__,\n        'message': error.message\n    }), error.status_code\n\n@app.errorhandler(500)\ndef handle_internal_error(error):\n    logger.error('Unhandled error: %s', error)\n    return jsonify({\n        'error': 'InternalError',\n        'message': 'An unexpected error occurred'\n    }), 500\n```"},
+    {"role": "user", "text": "Thanks. Can you also add input validation for the user registration endpoint?"},
+    {"role": "assistant", "text": "I'll add validation to the registration endpoint. Do you want me to validate the email, password, and username fields?"},
+    {"role": "user", "text": "No, not the password field — we handle password validation on the frontend. Just email and username."},
+    {"role": "assistant", "text": "Understood, skipping password validation.\n\n```python\n@app.route('/register', methods=['POST'])\ndef register():\n    data = request.get_json()\n    \n    if not data.get('email') or '@' not in data['email']:\n        raise ValidationError('Invalid email address')\n    \n    if not data.get('username') or len(data['username']) < 3:\n        raise ValidationError('Username must be at least 3 characters')\n    \n    # ... create user\n```"},
+    {"role": "user", "text": "Good. Now I want to add a feature where users can report errors they encounter. The error report should include what they were doing wrong and what they expected to happen instead."},
+    {"role": "assistant", "text": "I'll add an error reporting endpoint.\n\n```python\n@app.route('/reports', methods=['POST'])\ndef submit_error_report():\n    data = request.get_json()\n    \n    if not data.get('description'):\n        raise ValidationError('Description is required')\n    \n    report = ErrorReport(\n        user_id=get_current_user().id,\n        description=data['description'],\n        expected_behavior=data.get('expected_behavior'),\n        steps_to_reproduce=data.get('steps'),\n    )\n    db.session.add(report)\n    db.session.commit()\n    \n    return jsonify({'id': report.id, 'status': 'submitted'}), 201\n```"},
+    {"role": "user", "text": "In the error report model, add a field for 'what went wrong' — the user should describe what the incorrect behavior was."},
+    {"role": "assistant", "text": "I'll add that field:\n\n```python\nclass ErrorReport(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))\n    description = db.Column(db.Text, nullable=False)\n    what_went_wrong = db.Column(db.Text)\n    expected_behavior = db.Column(db.Text)\n    steps_to_reproduce = db.Column(db.Text)\n    created_at = db.Column(db.DateTime, default=datetime.utcnow)\n```"},
+    {"role": "user", "text": "We had a bug last week where the stop_processing flag wasn't being checked, causing duplicate error reports. Make sure the endpoint checks that flag."},
+    {"role": "assistant", "text": "Good catch. I'll add the check:\n\n```python\n@app.route('/reports', methods=['POST'])\ndef submit_error_report():\n    if is_processing_stopped():\n        return jsonify({'error': 'Processing is currently stopped'}), 503\n    \n    data = request.get_json()\n    # ... rest of the endpoint\n```"},
+    {"role": "user", "text": "Got it. Now add rate limiting to the reports endpoint — users shouldn't be able to spam reports."},
+    {"role": "assistant", "text": "I'll add rate limiting specifically for the reports endpoint.\n\n```python\nfrom flask_limiter import Limiter\n\nreport_limiter = Limiter(\n    app=app,\n    key_func=get_remote_address,\n    default_limits=['10 per hour']\n)\n\n@app.route('/reports', methods=['POST'])\n@report_limiter.limit('5 per hour')\ndef submit_error_report():\n    # ...\n```"}
+  ],
+  "expected_patterns": [
+    {
+      "id": "fp-01",
+      "type": "false_positive",
+      "summary": "Navigational 'no' — user choosing between two options, not correcting behavior",
+      "keywords": ["error classes first", "start with"],
+      "turn_range": [2, 3],
+      "should_extract": false,
+      "notes": "'No, start with the error classes first' is navigational — choosing order, not correcting a mistake"
+    },
+    {
+      "id": "fp-02",
+      "type": "false_positive",
+      "summary": "Routine acknowledgments should not be extracted",
+      "keywords": ["ok", "thanks", "got it"],
+      "turn_range": [4, 5],
+      "should_extract": false,
+      "notes": "'Ok. Now the middleware.' and 'Thanks.' are routine acknowledgments"
+    },
+    {
+      "id": "fp-03",
+      "type": "false_positive",
+      "summary": "Scope narrowing — user clarifying requirements, not correcting approach",
+      "keywords": ["not the password", "just email"],
+      "turn_range": [8, 9],
+      "should_extract": false,
+      "notes": "'No, not the password field' is narrowing scope, not saying the agent did something wrong"
+    },
+    {
+      "id": "fp-04",
+      "type": "false_positive",
+      "summary": "Domain language — 'wrong', 'error', 'stop' used in feature context, not as corrections",
+      "keywords": ["wrong", "error", "stop"],
+      "turn_range": [12, 17],
+      "should_extract": false,
+      "notes": "'what they were doing wrong', 'error report', 'stop_processing flag' — these are feature/domain terms, not user corrections"
+    }
+  ]
+}

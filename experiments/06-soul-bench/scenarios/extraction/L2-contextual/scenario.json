@@ -1,0 +1,71 @@
+{
+  "scenario": "extraction-eval-L2",
+  "transcript_source": "synthetic",
+  "difficulty": 2,
+  "description": "Contextual corrections — preference statements, style guidance, and implicit corrections without direct 'no/stop' language",
+  "turns": [
+    {"role": "user", "text": "Build a CLI tool in Python for processing CSV files."},
+    {"role": "assistant", "text": "I'll create a CLI tool using argparse for CSV processing.\n\n```python\nimport argparse\nimport csv\nimport sys\n\ndef main():\n    parser = argparse.ArgumentParser(description='CSV processing tool')\n    parser.add_argument('input', help='Input CSV file')\n    parser.add_argument('-o', '--output', help='Output file', default='output.csv')\n    args = parser.parse_args()\n    \n    with open(args.input, 'r') as f:\n        reader = csv.DictReader(f)\n        rows = list(reader)\n    \n    print(f'Loaded {len(rows)} rows')\n```"},
+    {"role": "user", "text": "I prefer click over argparse for CLIs. Also, always use pathlib instead of string paths."},
+    {"role": "assistant", "text": "Good call. Let me rewrite with click and pathlib.\n\n```python\nimport click\nfrom pathlib import Path\nimport csv\n\n@click.command()\n@click.argument('input_path', type=click.Path(exists=True, path_type=Path))\n@click.option('-o', '--output', type=click.Path(path_type=Path), default=Path('output.csv'))\ndef main(input_path: Path, output: Path):\n    with input_path.open() as f:\n        reader = csv.DictReader(f)\n        rows = list(reader)\n    click.echo(f'Loaded {len(rows)} rows')\n```"},
+    {"role": "user", "text": "Add a filter subcommand that filters rows by column value."},
+    {"role": "assistant", "text": "I'll add a filter subcommand using click groups.\n\n```python\n@click.group()\ndef cli():\n    pass\n\n@cli.command()\n@click.argument('input_path', type=click.Path(exists=True, path_type=Path))\n@click.option('--column', '-c', required=True)\n@click.option('--value', '-v', required=True)\n@click.option('-o', '--output', type=click.Path(path_type=Path), default=Path('output.csv'))\ndef filter(input_path, column, value, output):\n    \"\"\"Filter CSV rows where column matches value.\"\"\"\n    with input_path.open() as f:\n        reader = csv.DictReader(f)\n        rows = [r for r in reader if r.get(column) == value]\n    \n    with output.open('w', newline='') as f:\n        if rows:\n            writer = csv.DictWriter(f, fieldnames=rows[0].keys())\n            writer.writeheader()\n            writer.writerows(rows)\n    \n    click.echo(f'Filtered to {len(rows)} rows')\n```"},
+    {"role": "user", "text": "When you write functions, keep them short — under 20 lines. If it's longer, break it up."},
+    {"role": "assistant", "text": "Right. Let me refactor the filter command to split out the CSV reading and writing.\n\n```python\ndef read_csv(path: Path) -> list[dict]:\n    with path.open() as f:\n        return list(csv.DictReader(f))\n\ndef write_csv(rows: list[dict], path: Path):\n    if not rows:\n        return\n    with path.open('w', newline='') as f:\n        writer = csv.DictWriter(f, fieldnames=rows[0].keys())\n        writer.writeheader()\n        writer.writerows(rows)\n\n@cli.command()\n@click.argument('input_path', type=click.Path(exists=True, path_type=Path))\n@click.option('--column', '-c', required=True)\n@click.option('--value', '-v', required=True)\n@click.option('-o', '--output', type=click.Path(path_type=Path), default=Path('output.csv'))\ndef filter(input_path, column, value, output):\n    rows = read_csv(input_path)\n    filtered = [r for r in rows if r.get(column) == value]\n    write_csv(filtered, output)\n    click.echo(f'Filtered to {len(filtered)} rows')\n```"},
+    {"role": "user", "text": "Add a stats subcommand that shows row count, column names, and null counts per column."},
+    {"role": "assistant", "text": "I'll add the stats command.\n\n```python\n@cli.command()\n@click.argument('input_path', type=click.Path(exists=True, path_type=Path))\ndef stats(input_path):\n    rows = read_csv(input_path)\n    if not rows:\n        click.echo('Empty CSV')\n        return\n    \n    columns = list(rows[0].keys())\n    click.echo(f'Rows: {len(rows)}')\n    click.echo(f'Columns: {\", \".join(columns)}')\n    click.echo('\\nNull counts:')\n    for col in columns:\n        nulls = sum(1 for r in rows if not r.get(col))\n        click.echo(f'  {col}: {nulls}')\n```"},
+    {"role": "user", "text": "Use rich instead of plain click.echo for the stats output. Tables look much better."},
+    {"role": "assistant", "text": "Great idea. Let me use rich for formatted output.\n\n```python\nfrom rich.console import Console\nfrom rich.table import Table\n\nconsole = Console()\n\n@cli.command()\n@click.argument('input_path', type=click.Path(exists=True, path_type=Path))\ndef stats(input_path):\n    rows = read_csv(input_path)\n    if not rows:\n        console.print('[yellow]Empty CSV[/yellow]')\n        return\n    \n    console.print(f'[bold]Rows:[/bold] {len(rows)}')\n    \n    table = Table(title='Column Statistics')\n    table.add_column('Column')\n    table.add_column('Nulls', justify='right')\n    table.add_column('Fill Rate', justify='right')\n    \n    for col in rows[0].keys():\n        nulls = sum(1 for r in rows if not r.get(col))\n        fill = f'{(len(rows) - nulls) / len(rows) * 100:.1f}%'\n        table.add_row(col, str(nulls), fill)\n    \n    console.print(table)\n```"},
+    {"role": "user", "text": "Add tests. I always want pytest, not unittest."},
+    {"role": "assistant", "text": "I'll set up pytest tests for the CSV tool.\n\n```python\n# tests/test_csv_tool.py\nimport pytest\nfrom pathlib import Path\nfrom csv_tool import read_csv, write_csv\n\n@pytest.fixture\ndef sample_csv(tmp_path):\n    csv_file = tmp_path / 'test.csv'\n    csv_file.write_text('name,age,city\\nAlice,30,NYC\\nBob,,LA\\nCarol,25,NYC')\n    return csv_file\n\ndef test_read_csv(sample_csv):\n    rows = read_csv(sample_csv)\n    assert len(rows) == 3\n    assert rows[0]['name'] == 'Alice'\n\ndef test_write_csv(tmp_path):\n    rows = [{'name': 'Alice', 'age': '30'}]\n    out = tmp_path / 'out.csv'\n    write_csv(rows, out)\n    result = read_csv(out)\n    assert len(result) == 1\n```"},
+    {"role": "user", "text": "Add a merge subcommand that joins two CSVs on a shared key column."},
+    {"role": "assistant", "text": "I'll add a merge command that performs an inner join on a key column.\n\n```python\n@cli.command()\n@click.argument('left', type=click.Path(exists=True, path_type=Path))\n@click.argument('right', type=click.Path(exists=True, path_type=Path))\n@click.option('--key', '-k', required=True, help='Column to join on')\n@click.option('-o', '--output', type=click.Path(path_type=Path), default=Path('merged.csv'))\ndef merge(left, right, key, output):\n    left_rows = read_csv(left)\n    right_rows = read_csv(right)\n    right_lookup = {r[key]: r for r in right_rows}\n    merged = []\n    for lr in left_rows:\n        rr = right_lookup.get(lr.get(key))\n        if rr:\n            merged.append({**lr, **rr})\n    write_csv(merged, output)\n    console.print(f'Merged {len(merged)} rows')\n```"}
+  ],
+  "expected_patterns": [
+    {
+      "id": "pat-01",
+      "type": "preference",
+      "summary": "Use click instead of argparse for Python CLIs",
+      "keywords": ["click", "argparse"],
+      "turn_range": [2, 3],
+      "scope": "cross-project",
+      "should_extract": true
+    },
+    {
+      "id": "pat-02",
+      "type": "preference",
+      "summary": "Always use pathlib instead of string paths",
+      "keywords": ["pathlib", "string path"],
+      "turn_range": [2, 3],
+      "scope": "cross-project",
+      "should_extract": true
+    },
+    {
+      "id": "pat-03",
+      "type": "preference",
+      "summary": "Keep functions under 20 lines, split if longer",
+      "keywords": ["20 line", "short", "break it up", "split"],
+      "turn_range": [6, 7],
+      "scope": "cross-project",
+      "should_extract": true
+    },
+    {
+      "id": "pat-04",
+      "type": "preference",
+      "summary": "Use rich for formatted terminal output instead of plain print/echo",
+      "keywords": ["rich", "formatted", "table"],
+      "turn_range": [10, 11],
+      "scope": "repo",
+      "should_extract": true
+    },
+    {
+      "id": "pat-05",
+      "type": "preference",
+      "summary": "Always use pytest, not unittest",
+      "keywords": ["pytest", "unittest"],
+      "turn_range": [12, 13],
+      "scope": "cross-project",
+      "should_extract": true
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "keyword-only": {
+    "recall": 1.0,
+    "precision": 0.0,
+    "f1": 0.0,
+    "fp_rate": 0.5,
+    "true_positives": [],
+    "false_negatives": [],
+    "false_positives_caught": [
+      "fp-02",
+      "fp-03"
+    ],
+    "false_positives_missed": [
+      "fp-01",
+      "fp-04"
+    ],
+    "total_extracted": 1,
+    "extraction_calls": 7,
+    "elapsed": 97.1
+  }
+}

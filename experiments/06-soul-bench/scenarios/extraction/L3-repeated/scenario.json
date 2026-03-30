@@ -1,0 +1,56 @@
+{
+  "scenario": "extraction-eval-L3",
+  "transcript_source": "synthetic",
+  "difficulty": 3,
+  "description": "Repeated corrections and frustration signals — user corrects the same thing twice, escalating language",
+  "turns": [
+    {"role": "user", "text": "Set up a Node.js API with Express and TypeScript."},
+    {"role": "assistant", "text": "I'll set up the project with Express and TypeScript.\n\n```typescript\nimport express from 'express';\n\nconst app = express();\napp.use(express.json());\n\napp.get('/health', (req, res) => {\n  res.json({ status: 'ok' });\n});\n\napp.listen(3000, () => {\n  console.log('Server running on port 3000');\n});\n```"},
+    {"role": "user", "text": "Don't use console.log for a server — use a proper logger like pino."},
+    {"role": "assistant", "text": "Good point. Let me switch to pino.\n\n```typescript\nimport pino from 'pino';\nconst logger = pino();\n\napp.listen(3000, () => {\n  logger.info('Server running on port 3000');\n});\n```"},
+    {"role": "user", "text": "Add a users CRUD endpoint."},
+    {"role": "assistant", "text": "I'll add the users CRUD routes.\n\n```typescript\nimport { Router } from 'express';\n\nconst router = Router();\n\nrouter.get('/', async (req, res) => {\n  try {\n    const users = await db.select('*').from('users');\n    res.json(users);\n  } catch (err) {\n    console.log('Error fetching users:', err);\n    res.status(500).json({ error: 'Internal server error' });\n  }\n});\n```"},
+    {"role": "user", "text": "You're using console.log again. I just told you to use pino. Use the logger everywhere."},
+    {"role": "assistant", "text": "Sorry about that. Switching to pino.\n\n```typescript\nrouter.get('/', async (req, res) => {\n  try {\n    const users = await db.select('*').from('users');\n    res.json(users);\n  } catch (err) {\n    logger.error(err, 'Error fetching users');\n    res.status(500).json({ error: 'Internal server error' });\n  }\n});\n```"},
+    {"role": "user", "text": "Add input validation on the POST endpoint."},
+    {"role": "assistant", "text": "I'll add validation using Joi.\n\n```typescript\nimport Joi from 'joi';\n\nconst userSchema = Joi.object({\n  name: Joi.string().min(1).max(100).required(),\n  email: Joi.string().email().required(),\n});\n\nrouter.post('/', async (req, res) => {\n  const { error, value } = userSchema.validate(req.body);\n  if (error) {\n    return res.status(400).json({ error: error.details[0].message });\n  }\n  try {\n    const [id] = await db('users').insert(value);\n    res.status(201).json({ id, ...value });\n  } catch (err) {\n    console.log('Insert failed:', err);\n    res.status(500).json({ error: 'Internal server error' });\n  }\n});\n```"},
+    {"role": "user", "text": "I already told you twice — stop using console.log. Use pino. This is the third time."},
+    {"role": "assistant", "text": "I'm sorry, that's my mistake. Let me fix it and make sure I never use console.log again.\n\n```typescript\nrouter.post('/', async (req, res) => {\n  const { error, value } = userSchema.validate(req.body);\n  if (error) {\n    return res.status(400).json({ error: error.details[0].message });\n  }\n  try {\n    const [id] = await db('users').insert(value);\n    res.status(201).json({ id, ...value });\n  } catch (err) {\n    logger.error(err, 'Insert failed');\n    res.status(500).json({ error: 'Internal server error' });\n  }\n});\n```"},
+    {"role": "user", "text": "Add a middleware for request logging."},
+    {"role": "assistant", "text": "I'll add pino-http middleware for request logging.\n\n```typescript\nimport pinoHttp from 'pino-http';\n\napp.use(pinoHttp({ logger }));\n```\n\nThis logs every request with method, URL, status code, and response time."},
+    {"role": "user", "text": "Add rate limiting."},
+    {"role": "assistant", "text": "I'll add rate limiting using express-rate-limit.\n\n```typescript\nimport rateLimit from 'express-rate-limit';\n\nconst limiter = rateLimit({\n  windowMs: 15 * 60 * 1000,\n  max: 100,\n  standardHeaders: true,\n  legacyHeaders: false,\n});\n\napp.use(limiter);\n```"},
+    {"role": "user", "text": "Use zod instead of Joi for validation. Zod has better TypeScript integration."},
+    {"role": "assistant", "text": "Good call. Zod is much better for TypeScript. Let me swap it out.\n\n```typescript\nimport { z } from 'zod';\n\nconst UserSchema = z.object({\n  name: z.string().min(1).max(100),\n  email: z.string().email(),\n});\n\nrouter.post('/', async (req, res) => {\n  const result = UserSchema.safeParse(req.body);\n  if (!result.success) {\n    return res.status(400).json({ error: result.error.issues[0].message });\n  }\n  try {\n    const [id] = await db('users').insert(result.data);\n    res.status(201).json({ id, ...result.data });\n  } catch (err) {\n    logger.error(err, 'Insert failed');\n    res.status(500).json({ error: 'Internal server error' });\n  }\n});\n```"}
+  ],
+  "expected_patterns": [
+    {
+      "id": "pat-01",
+      "type": "correction",
+      "summary": "Never use console.log in server code — always use pino logger",
+      "keywords": ["console.log", "pino", "logger"],
+      "turn_range": [2, 3],
+      "scope": "repo",
+      "should_extract": true
+    },
+    {
+      "id": "pat-02",
+      "type": "correction",
+      "summary": "Repeated correction: agent kept using console.log after being told to use pino — predecessor warning",
+      "keywords": ["console.log", "pino", "already told", "third time", "repeated", "predecessor"],
+      "turn_range": [10, 11],
+      "scope": "repo",
+      "should_extract": true,
+      "notes": "This should be detected as an escalation / repeated correction and flagged as a predecessor warning"
+    },
+    {
+      "id": "pat-03",
+      "type": "correction",
+      "summary": "Use zod instead of Joi for validation in TypeScript projects",
+      "keywords": ["zod", "joi", "typescript"],
+      "turn_range": [16, 17],
+      "scope": "repo",
+      "should_extract": true
+    }
+  ]
+}

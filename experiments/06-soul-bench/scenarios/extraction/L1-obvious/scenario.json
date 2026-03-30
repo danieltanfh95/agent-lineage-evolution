@@ -1,0 +1,64 @@
+{
+  "scenario": "extraction-eval-L1",
+  "transcript_source": "synthetic",
+  "difficulty": 1,
+  "description": "Obvious corrections — direct 'no/stop/don't' language that should trigger tier 1 keyword match and be easily confirmed by Haiku",
+  "turns": [
+    {"role": "user", "text": "Set up a Flask API for managing tasks. Use SQLAlchemy for the database."},
+    {"role": "assistant", "text": "I'll create the Flask API with SQLAlchemy. Let me start by setting up the project structure.\n\n```python\nfrom flask import Flask, jsonify, request\nfrom flask_sqlalchemy import SQLAlchemy\n\napp = Flask(__name__)\napp.config[\"SQLALCHEMY_DATABASE_URI\"] = \"sqlite:///tasks.db\"\ndb = SQLAlchemy(app)\n\nclass Task(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    title = db.Column(db.String(200), nullable=False)\n    done = db.Column(db.Boolean, default=False)\n```"},
+    {"role": "user", "text": "No, don't use double quotes for Python strings. Use single quotes everywhere."},
+    {"role": "assistant", "text": "Got it, switching to single quotes throughout.\n\n```python\nfrom flask import Flask, jsonify, request\nfrom flask_sqlalchemy import SQLAlchemy\n\napp = Flask(__name__)\napp.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'\ndb = SQLAlchemy(app)\n\nclass Task(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    title = db.Column(db.String(200), nullable=False)\n    done = db.Column(db.Boolean, default=False)\n```"},
+    {"role": "user", "text": "Good. Now add CRUD endpoints."},
+    {"role": "assistant", "text": "I'll add the CRUD endpoints for tasks.\n\n```python\n@app.route('/tasks', methods=['GET'])\ndef get_tasks():\n    tasks = Task.query.all()\n    return jsonify([{'id': t.id, 'title': t.title, 'done': t.done} for t in tasks])\n\n@app.route('/tasks', methods=['POST'])\ndef create_task():\n    data = request.get_json()\n    task = Task(title=data['title'])\n    db.session.add(task)\n    db.session.commit()\n    return jsonify({'id': task.id, 'title': task.title, 'done': task.done}), 201\n\n@app.route('/tasks/<int:task_id>', methods=['PUT'])\ndef update_task(task_id):\n    task = Task.query.get_or_404(task_id)\n    data = request.get_json()\n    task.title = data.get('title', task.title)\n    task.done = data.get('done', task.done)\n    db.session.commit()\n    return jsonify({'id': task.id, 'title': task.title, 'done': task.done})\n\n@app.route('/tasks/<int:task_id>', methods=['DELETE'])\ndef delete_task(task_id):\n    task = Task.query.get_or_404(task_id)\n    db.session.delete(task)\n    db.session.commit()\n    return '', 204\n```"},
+    {"role": "user", "text": "Stop hardcoding the database URI. Use an environment variable with a fallback."},
+    {"role": "assistant", "text": "Right, I'll use an environment variable.\n\n```python\nimport os\n\napp.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///tasks.db')\n```"},
+    {"role": "user", "text": "Add authentication using JWT."},
+    {"role": "assistant", "text": "I'll add JWT authentication. First, let me install flask-jwt-extended and set up the auth endpoints.\n\n```python\nfrom flask_jwt_extended import JWTManager, jwt_required, create_access_token\n\napp.config['JWT_SECRET_KEY'] = 'super-secret-key'\njwt = JWTManager(app)\n\n@app.route('/login', methods=['POST'])\ndef login():\n    username = request.json.get('username')\n    password = request.json.get('password')\n    # For demo purposes\n    if username == 'admin' and password == 'password':\n        token = create_access_token(identity=username)\n        return jsonify(access_token=token)\n    return jsonify(msg='Bad credentials'), 401\n```"},
+    {"role": "user", "text": "Don't hardcode the JWT secret either! And don't use a demo login — connect to a real user table."},
+    {"role": "assistant", "text": "You're right, I'll fix both issues.\n\n```python\napp.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET', os.urandom(32).hex())\n\nclass User(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    username = db.Column(db.String(80), unique=True, nullable=False)\n    password_hash = db.Column(db.String(128), nullable=False)\n\n@app.route('/login', methods=['POST'])\ndef login():\n    username = request.json.get('username')\n    password = request.json.get('password')\n    user = User.query.filter_by(username=username).first()\n    if user and check_password_hash(user.password_hash, password):\n        token = create_access_token(identity=user.id)\n        return jsonify(access_token=token)\n    return jsonify(msg='Bad credentials'), 401\n```"},
+    {"role": "user", "text": "Now add the jwt_required decorator to the task endpoints."},
+    {"role": "assistant", "text": "I'll protect all task endpoints with JWT authentication.\n\n```python\n@app.route('/tasks', methods=['GET'])\n@jwt_required()\ndef get_tasks():\n    # ... unchanged\n\n@app.route('/tasks', methods=['POST'])\n@jwt_required()\ndef create_task():\n    # ... unchanged\n```"},
+    {"role": "user", "text": "Wrong — the GET endpoint should be public. Only POST, PUT, DELETE need auth."},
+    {"role": "assistant", "text": "My mistake. I'll remove the decorator from GET and keep it on the others.\n\n```python\n@app.route('/tasks', methods=['GET'])\ndef get_tasks():\n    # public endpoint, no auth needed\n    tasks = Task.query.all()\n    return jsonify([{'id': t.id, 'title': t.title, 'done': t.done} for t in tasks])\n\n@app.route('/tasks', methods=['POST'])\n@jwt_required()\ndef create_task():\n    # ... requires auth\n```"},
+    {"role": "user", "text": "Add error handling. Use a global error handler."},
+    {"role": "assistant", "text": "I'll add a global error handler for common HTTP errors and unexpected exceptions.\n\n```python\n@app.errorhandler(400)\ndef bad_request(e):\n    return jsonify(error='Bad request', message=str(e)), 400\n\n@app.errorhandler(404)\ndef not_found(e):\n    return jsonify(error='Not found'), 404\n\n@app.errorhandler(500)\ndef server_error(e):\n    return jsonify(error='Internal server error'), 500\n```"}
+  ],
+  "expected_patterns": [
+    {
+      "id": "pat-01",
+      "type": "correction",
+      "summary": "Use single quotes not double quotes in Python",
+      "keywords": ["single quote", "single-quote", "single quotes"],
+      "turn_range": [2, 3],
+      "scope": "repo",
+      "should_extract": true
+    },
+    {
+      "id": "pat-02",
+      "type": "correction",
+      "summary": "Never hardcode configuration values — use environment variables",
+      "keywords": ["environment variable", "env var", "hardcod", "os.environ"],
+      "turn_range": [6, 7],
+      "scope": "cross-project",
+      "should_extract": true
+    },
+    {
+      "id": "pat-03",
+      "type": "correction",
+      "summary": "Never hardcode secrets like JWT keys",
+      "keywords": ["hardcode", "secret", "JWT", "jwt_secret"],
+      "turn_range": [10, 11],
+      "scope": "cross-project",
+      "should_extract": true
+    },
+    {
+      "id": "pat-04",
+      "type": "correction",
+      "summary": "GET endpoints should be public, only mutating endpoints need auth",
+      "keywords": ["GET", "public", "mutating", "POST", "PUT", "DELETE", "auth"],
+      "turn_range": [14, 15],
+      "scope": "repo",
+      "should_extract": true
+    }
+  ]
+}
