@@ -101,7 +101,7 @@ Be specific and concise.
 
 Question: {question}"""
 
-INITIAL_SOUL = """## Identity
+DEFAULT_INITIAL_SOUL = """## Identity
 I am a coding assistant working on the express-api project — a Node.js/Express REST API.
 
 ## Accumulated Knowledge
@@ -117,13 +117,21 @@ Project has just been initialized. No sessions completed yet.
 No specialized skills defined."""
 
 
+def load_initial_soul(scenario_dir):
+    """Load initial soul from scenario directory, or fall back to default."""
+    initial_soul_file = scenario_dir / "initial-soul.md"
+    if initial_soul_file.exists():
+        return initial_soul_file.read_text().strip()
+    return DEFAULT_INITIAL_SOUL
+
+
 def run_soul_condition(scenario_dir, model_name, output_dir):
     """Run compaction over all sessions, then answer questions."""
     model_id = MODEL_IDS[model_name]
     sessions_dir = scenario_dir / "sessions"
     session_files = sorted(sessions_dir.glob("session-*.md"))
 
-    soul_md = INITIAL_SOUL
+    soul_md = load_initial_soul(scenario_dir)
     all_metrics = []
 
     for i, session_file in enumerate(session_files):
