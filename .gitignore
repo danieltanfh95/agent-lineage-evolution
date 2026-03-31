@@ -1,5 +1,6 @@
 .DS_Store
 .soul/log/*.jsonl
+.soul/staging/
 .claude/settings.local.json
 experiments/05-longmemeval/data/
 experiments/05-longmemeval/LongMemEval/
