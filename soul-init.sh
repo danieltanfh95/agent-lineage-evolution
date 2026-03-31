@@ -153,7 +153,8 @@ if [ ! -f "${REPO_SOUL_DIR}/config.json" ]; then
   cat > "${REPO_SOUL_DIR}/config.json" << 'CONFIG_EOF'
 {
   "conscience": {
-    "model": "haiku",
+    "auditModel": "sonnet",
+    "correctionModel": "sonnet",
     "auditEveryNTurns": 5,
     "alwaysAuditKeywords": ["commit", "delete", "deploy", "push", "force", "drop", "remove", "destroy"],
     "killAfterNViolations": 3
@@ -163,6 +164,12 @@ if [ ! -f "${REPO_SOUL_DIR}/config.json" ]; then
   },
   "compaction": {
     "autoCommit": true
+  },
+  "patterns": {
+    "autoWriteInvariants": true
+  },
+  "preToolUse": {
+    "enabled": true
   }
 }
 CONFIG_EOF
@@ -173,7 +180,7 @@ fi
 # Copy hooks from the framework if available, otherwise create them
 FRAMEWORK_HOOKS_DIR="${SCRIPT_DIR}/.soul/hooks"
 
-for hook_name in session-start.sh conscience.sh compact.sh; do
+for hook_name in session-start.sh conscience.sh compact.sh pre-tool-use.sh; do
   target="${REPO_SOUL_DIR}/hooks/${hook_name}"
   if [ ! -f "$target" ]; then
     if [ -f "${FRAMEWORK_HOOKS_DIR}/${hook_name}" ]; then
@@ -229,6 +236,17 @@ SOUL_HOOKS=$(cat << 'HOOKS_EOF'
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.soul/hooks/compact.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.soul/hooks/pre-tool-use.sh"
           }
         ]
       }

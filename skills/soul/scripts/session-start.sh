@@ -88,22 +88,74 @@ fi
 # --- Phase 3: Append invariants summary ---
 
 if [ -d "${SOUL_DIR}/invariants" ]; then
-  invariants=""
+  human_invariants=""
+  learned_invariants=""
   for inv_file in "${SOUL_DIR}/invariants"/*.md; do
     if [ -f "$inv_file" ]; then
       name=$(basename "$inv_file" .md)
-      invariants+="
+      if [ "$name" = "learned" ]; then
+        learned_invariants+="
+$(cat "$inv_file")
+"
+      else
+        human_invariants+="
 ### ${name}
 $(cat "$inv_file")
 "
+      fi
     fi
   done
 
-  if [ -n "$invariants" ]; then
+  if [ -n "$human_invariants" ]; then
     assembled+="
 --- INVARIANTS (human-authored, immutable) ---
 The following invariants MUST NOT be violated. A conscience audit loop monitors your behavior against these rules. Violations will be blocked and repeated violations will terminate the session.
-${invariants}"
+${human_invariants}"
+  fi
+
+  if [ -n "$learned_invariants" ]; then
+    assembled+="
+
+--- LEARNED RULES (auto-generated from your corrections) ---
+These rules were learned from your past corrections. They are enforced like invariants but you can edit or delete them in .soul/invariants/learned.md.
+${learned_invariants}"
+  fi
+fi
+
+# --- Phase 3b: Generate tool-rules.json from invariant text (for PreToolUse hook) ---
+
+TOOL_RULES_FILE="${SOUL_DIR}/invariants/tool-rules.json"
+if [ ! -f "$TOOL_RULES_FILE" ] && [ -d "${SOUL_DIR}/invariants" ]; then
+  RULES="[]"
+  for inv_file in "${SOUL_DIR}/invariants"/*.md; do
+    [ -f "$inv_file" ] || continue
+    name=$(basename "$inv_file" .md)
+    while IFS= read -r line; do
+      line_lower=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+      # Agent/subagent blocking
+      if echo "$line_lower" | grep -qE '(never|do not|don.t).*(subagent|sub-agent|spawn agent)'; then
+        RULES=$(echo "$RULES" | jq --arg reason "$line" --arg src "${name}.md" \
+          '. + [{"block_tool": "Agent", "reason": $reason, "source": $src}]')
+      fi
+      # Force-push blocking
+      if echo "$line_lower" | grep -qE '(never|do not|don.t).*force.?push'; then
+        RULES=$(echo "$RULES" | jq --arg src "${name}.md" \
+          '. + [{"block_bash_pattern": "git push.*(--force|-f)", "reason": "Never force-push without confirmation", "source": $src}]')
+      fi
+      # --no-verify blocking
+      if echo "$line_lower" | grep -qE '(never|do not|don.t).*--no-verify'; then
+        RULES=$(echo "$RULES" | jq --arg src "${name}.md" \
+          '. + [{"block_bash_pattern": "--no-verify", "reason": "Never skip pre-commit hooks", "source": $src}]')
+      fi
+      # Read-before-edit
+      if echo "$line_lower" | grep -qE 'read.*before.*edit'; then
+        RULES=$(echo "$RULES" | jq --arg src "${name}.md" \
+          '. + [{"require_prior_read": true, "reason": "Always read a file before editing it", "source": $src}]')
+      fi
+    done < <(grep '^- ' "$inv_file")
+  done
+  if [ "$RULES" != "[]" ]; then
+    echo "$RULES" | jq '.' > "$TOOL_RULES_FILE"
   fi
 fi
 

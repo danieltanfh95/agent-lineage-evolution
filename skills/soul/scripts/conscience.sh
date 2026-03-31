@@ -39,7 +39,8 @@ fi
 
 # --- Read config (validate JSON first to avoid set -e crash) ---
 if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" 2>/dev/null; then
-  AUDIT_MODEL=$(jq -r '.conscience.model // "haiku"' "$CONFIG_FILE")
+  AUDIT_MODEL=$(jq -r '.conscience.auditModel // .conscience.model // "sonnet"' "$CONFIG_FILE")
+  CORRECTION_MODEL=$(jq -r '.conscience.correctionModel // .conscience.model // "sonnet"' "$CONFIG_FILE")
   AUDIT_EVERY_N=$(jq -r '.conscience.auditEveryNTurns // 5' "$CONFIG_FILE")
   KILL_AFTER_N=$(jq -r '.conscience.killAfterNViolations // 3' "$CONFIG_FILE")
   AUDIT_KEYWORDS_JSON=$(jq -r '.conscience.alwaysAuditKeywords // ["commit","delete","deploy","push"]' "$CONFIG_FILE")
@@ -49,8 +50,10 @@ if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" 2>/dev/null; then
   PATTERN_MODEL=$(jq -r '.patterns.model // "sonnet"' "$CONFIG_FILE")
   EXTRACT_EVERY_K=$(jq -r '.patterns.extractEveryKTokens // 20' "$CONFIG_FILE")
   PROMOTE_CROSS_PROJECT=$(jq -r '.patterns.promoteToCrossProject // true' "$CONFIG_FILE")
+  AUTO_WRITE_INVARIANTS=$(jq -r '.patterns.autoWriteInvariants // true' "$CONFIG_FILE")
 else
-  AUDIT_MODEL="haiku"
+  AUDIT_MODEL="sonnet"
+  CORRECTION_MODEL="sonnet"
   AUDIT_EVERY_N=5
   KILL_AFTER_N=3
   AUDIT_KEYWORDS_JSON='["commit","delete","deploy","push"]'
@@ -60,9 +63,11 @@ else
   PATTERN_MODEL="sonnet"
   EXTRACT_EVERY_K=20
   PROMOTE_CROSS_PROJECT="true"
+  AUTO_WRITE_INVARIANTS="true"
 fi
 
 AUDIT_MODEL_ID=$(map_model_id "$AUDIT_MODEL")
+CORRECTION_MODEL_ID=$(map_model_id "$CORRECTION_MODEL")
 PATTERN_MODEL_ID=$(map_model_id "$PATTERN_MODEL")
 
 # --- Read last assistant message ---
@@ -275,7 +280,7 @@ if [ "$CORRECTION_DETECTION" = "true" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$T
 USER MESSAGE:
 ${LATEST_USER_MSG}"
 
-    TIER2_RAW=$(echo "$CORRECTION_PROMPT" | timeout 15 claude -p --model "$AUDIT_MODEL_ID" --output-format json 2>/dev/null) || true
+    TIER2_RAW=$(echo "$CORRECTION_PROMPT" | timeout 15 claude -p --model "$CORRECTION_MODEL_ID" --output-format json 2>/dev/null) || true
     TIER2_RESULT=$(echo "$TIER2_RAW" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
     TIER2_VERDICT=$(echo "$TIER2_RESULT" | tr '[:lower:]' '[:upper:]' | grep -o 'YES\|NO' | head -1)
 
@@ -325,13 +330,21 @@ run_pattern_extraction() {
   GROWTH=$((TRANSCRIPT_SIZE - LAST_OFFSET))
 
   # Correction-triggered extraction: lower threshold 5x if flagged
+  CORRECTION_FLAGGED=false
   if [ -f "$CORRECTION_FLAG_FILE" ]; then
     THRESHOLD_BYTES=$((THRESHOLD_BYTES / 5))
-    rm -f "$CORRECTION_FLAG_FILE"
+    CORRECTION_FLAGGED=true
   fi
 
   if [ "$GROWTH" -lt "$THRESHOLD_BYTES" ]; then
+    # Don't consume the correction flag — preserve it for the next call
+    # so the correction isn't permanently lost on short transcripts
     return
+  fi
+
+  # Threshold passed — safe to consume the flag now
+  if [ "$CORRECTION_FLAGGED" = "true" ]; then
+    rm -f "$CORRECTION_FLAG_FILE"
   fi
 
   # --- Extract transcript window ---
@@ -442,6 +455,18 @@ Output ONLY valid JSON (no markdown fencing):
       \"suggested_file\": \"behavior.md or architecture.md or a new descriptive filename\"
     }
   ],
+  \"tool_rules\": [
+    {
+      \"block_tool\": \"exact Claude Code tool name to block (Agent, Bash, Edit, Read, Write, Glob, Grep) — use for invariants that prohibit a specific tool\",
+      \"reason\": \"human-readable reason\",
+      \"source\": \"learned.md\"
+    },
+    {
+      \"block_bash_pattern\": \"regex pattern to match against bash commands (e.g., 'git push.*(--force|-f)')\",
+      \"reason\": \"human-readable reason\",
+      \"source\": \"learned.md\"
+    }
+  ],
   \"genome_updates\": [\"new lines for ~/.soul/genome/learned.md\"]
 }
 
@@ -455,6 +480,9 @@ Rules:
 - Do not write to soul_updates anything already covered by the INVARIANTS above
 - accumulated_knowledge is for FACTS only — if a pattern is an action/rule, put it in invariant_suggestions instead
 - invariant_suggestions should contain behavioral rules, especially those with absolute language (never/always) or user frustration/repetition
+- For each invariant_suggestion that blocks a specific tool or bash pattern, also emit a corresponding tool_rules entry for machine-readable enforcement
+- tool_rules block_tool must be an exact Claude Code tool name: Agent, Bash, Edit, Read, Write, Glob, Grep
+- tool_rules block_bash_pattern must be a valid regex pattern
 - Balance corrections and confirmations — both are valuable signals"
 
   # --- Run extraction via claude -p ---
@@ -512,13 +540,60 @@ Rules:
     done <<< "$AK_UPDATES"
   fi
 
-  # --- Process invariant_suggestions → notify user ---
+  # --- Process invariant_suggestions → auto-write or notify ---
   INV_SUGGESTIONS=$(echo "$EXTRACT_RESULT" | jq -r '.invariant_suggestions // [] | length' 2>/dev/null) || INV_SUGGESTIONS=0
   if [ "$INV_SUGGESTIONS" -gt 0 ]; then
-    INV_RULES=$(echo "$EXTRACT_RESULT" | jq -r '.invariant_suggestions[] | "\"" + .rule + "\" → " + .suggested_file' 2>/dev/null) || true
-    if [ -n "$INV_RULES" ]; then
-      NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Suggested invariant(s): ${INV_RULES}. Add to .soul/invariants/ to enforce"
+    LEARNED_INV_FILE="${SOUL_DIR}/invariants/learned.md"
+    RULES_WRITTEN=0
 
+    if [ "$AUTO_WRITE_INVARIANTS" = "true" ]; then
+      # Initialize learned.md if missing
+      if [ ! -f "$LEARNED_INV_FILE" ]; then
+        mkdir -p "${SOUL_DIR}/invariants"
+        cat > "$LEARNED_INV_FILE" << 'LEARNED_INV_EOF'
+# Learned Invariants
+
+<!-- Auto-generated from user corrections. Edit or delete rules that are wrong. -->
+LEARNED_INV_EOF
+      fi
+
+      # Write each suggestion, deduplicating
+      while IFS= read -r suggestion; do
+        rule=$(echo "$suggestion" | jq -r '.rule')
+        if [ -n "$rule" ] && ! grep -qiF "$rule" "$LEARNED_INV_FILE" 2>/dev/null; then
+          echo "- ${rule}" >> "$LEARNED_INV_FILE"
+          RULES_WRITTEN=$((RULES_WRITTEN + 1))
+        fi
+      done < <(echo "$EXTRACT_RESULT" | jq -c '.invariant_suggestions // [] | .[]' 2>/dev/null)
+
+      # Also write tool_rules if extraction produced them
+      TOOL_RULES=$(echo "$EXTRACT_RESULT" | jq -c '.tool_rules // []' 2>/dev/null)
+      if [ "$TOOL_RULES" != "[]" ] && [ "$TOOL_RULES" != "null" ]; then
+        TOOL_RULES_FILE="${SOUL_DIR}/invariants/tool-rules.json"
+        if [ -f "$TOOL_RULES_FILE" ]; then
+          MERGED=$(jq -s '.[0] + .[1] | unique_by(.block_tool // .block_bash_pattern // .require_prior_read)' \
+            "$TOOL_RULES_FILE" <(echo "$TOOL_RULES"))
+          echo "$MERGED" > "$TOOL_RULES_FILE"
+        else
+          echo "$TOOL_RULES" | jq '.' > "$TOOL_RULES_FILE"
+        fi
+      fi
+
+      if [ "$RULES_WRITTEN" -gt 0 ]; then
+        NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Learned ${RULES_WRITTEN} rule(s) — enforced immediately. Edit .soul/invariants/learned.md to change"
+        SOUL_MODIFIED=true
+      fi
+
+      log_soul_event "invariant_auto_written" \
+        --argjson turn "$TURN_COUNT" \
+        --argjson count "$RULES_WRITTEN" \
+        --argjson suggestions "$(echo "$EXTRACT_RESULT" | jq -c '.invariant_suggestions // []')"
+    else
+      # Suggest-only mode (original behavior)
+      INV_RULES=$(echo "$EXTRACT_RESULT" | jq -r '.invariant_suggestions[] | "\"" + .rule + "\" → " + .suggested_file' 2>/dev/null) || true
+      if [ -n "$INV_RULES" ]; then
+        NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Suggested invariant(s): ${INV_RULES}. Add to .soul/invariants/ to enforce"
+      fi
       log_soul_event "invariant_suggestion" \
         --argjson turn "$TURN_COUNT" \
         --argjson count "$INV_SUGGESTIONS" \

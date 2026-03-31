@@ -155,9 +155,9 @@
 4. Read transcript window (last offset → current end, capped at 200KB)
 5. Read current SOUL.md and genome files
 6. Send to `claude -p` (Sonnet) with extraction prompt
-7. Parse response: structured JSON with patterns, soul_updates, invariant_suggestions, genome_updates
+7. Parse response: structured JSON with patterns, soul_updates, invariant_suggestions, tool_rules, genome_updates
 8. Append repo-specific FACTS to `.soul/SOUL.md` (Accumulated Knowledge section only — no behavioral rules)
-9. If invariant_suggestions found: surface via `systemMessage` ("Consider adding to .soul/invariants/"). Log `invariant_suggestion` event.
+9. Auto-write invariant_suggestions to `.soul/invariants/learned.md` (when `patterns.autoWriteInvariants` is true). Also write `tool_rules` to `.soul/invariants/tool-rules.json` for PreToolUse enforcement. Log `invariant_auto_written` event. Notify via `systemMessage`: "Learned N rule(s) — enforced immediately."
 10. Append cross-project patterns to `~/.soul/genome/learned.md`
 11. Log extraction details to `.soul/staging/recent-extractions.jsonl` (for `/soul review`)
 12. Update offset tracking file
@@ -181,6 +181,8 @@ Also picks up pending compaction notifications from `/tmp/.soul-compact-notify-$
 
 **Writes to:**
 - `.soul/SOUL.md` — appends new factual bullets to Accumulated Knowledge (facts only, no behavioral rules)
+- `.soul/invariants/learned.md` — auto-written behavioral rules from user corrections (when `autoWriteInvariants` is true)
+- `.soul/invariants/tool-rules.json` — machine-readable enforcement rules for PreToolUse hook
 - `~/.soul/genome/learned.md` — appends cross-project patterns (created on first extraction)
 - `.soul/exports/<name>/SKILL.md` — re-exported with fresh knowledge (when SOUL.md modified)
 - `.soul/staging/recent-extractions.jsonl` — extraction log for `/soul review`
@@ -256,9 +258,11 @@ Final: If `autoCommit: true`, stage `.soul/SOUL.md` and `.soul/exports/` via `gi
 
 ---
 
-## Hook: PreToolUse (not currently used by SOUL)
+## Hook: PreToolUse (Invariant Enforcement)
 
 **Triggers:** Before every tool call (Read, Edit, Bash, etc.)
+
+**Script:** `pre-tool-use.sh`
 
 **Input (stdin JSON):**
 | Field | Type | Description |
@@ -269,7 +273,28 @@ Final: If `autoCommit: true`, stage `.soul/SOUL.md` and `.soul/exports/` via `gi
 | `tool_name` | string | Which tool is about to be called |
 | `tool_input` | object | The tool's parameters |
 
-**Could be used for:** Pre-flight checks (e.g., "is the agent about to edit a file it hasn't read?"), but not currently implemented. The conscience audit covers this retrospectively.
+**Action (must be fast — no LLM calls, pure bash + jq):**
+
+1. Read `.soul/invariants/tool-rules.json`
+2. Check `block_tool` rules: if `tool_name` matches, block immediately
+3. Check `block_bash_pattern` rules: if `tool_name == "Bash"` and command matches regex, block
+4. Check `require_prior_read` rules: if `tool_name == "Edit"` and target file hasn't been Read in transcript, block
+5. If no rules match, exit 0 (allow)
+
+**tool-rules.json format:**
+```json
+[
+  {"block_tool": "Agent", "reason": "Never use subagents", "source": "learned.md"},
+  {"block_bash_pattern": "git push.*(--force|-f)", "reason": "Never force-push", "source": "behavior.md"},
+  {"require_prior_read": true, "reason": "Always read before editing", "source": "behavior.md"}
+]
+```
+
+**Rule generation:** `tool-rules.json` is generated at session start from invariant text (heuristic pattern matching) and updated mid-session by pattern extraction (Sonnet produces structured `tool_rules` alongside `invariant_suggestions`).
+
+**Config:** `preToolUse.enabled` (default `true`). Set to `false` to disable.
+
+**Cost:** Zero — no LLM calls. ~10-50ms per tool call (jq parsing + file reads).
 
 ---
 
@@ -504,10 +529,12 @@ Exported skills are valid Claude Code skills. Distribution via:
 - ~~Extraction and compaction race on SOUL.md~~ — Stop and PostCompact hooks cannot fire concurrently. `/compact` does not trigger Stop. They are sequential, never overlapping.
 - ~~No genome compaction~~ — `compact.sh` now compacts `~/.soul/genome/learned.md` when it exceeds 5000 chars, during the same PostCompact event that compacts SOUL.md.
 - ~~Token count estimation~~ — With a 1M context window, ±20% on a 20k trigger threshold is irrelevant.
-- ~~PreToolUse/PostToolUse unused~~ — Design choice, not a gap. Conscience audit covers invariant checking retrospectively.
+- ~~PreToolUse/PostToolUse unused~~ — PreToolUse now implemented as `pre-tool-use.sh`. Reads `tool-rules.json` to block invariant violations before they happen. Pure bash + jq, no LLM calls, ~10-50ms per tool call.
 - ~~No user-message hook~~ — Three-tier correction detection (stop words → Haiku micro-prompt → extraction flag) provides near-real-time correction capture without a dedicated user-message hook. Corrections trigger extraction within ~4k tokens instead of waiting for the full 20k threshold.
 - ~~No feedback loop on extraction~~ — `systemMessage` notifications inform the user when patterns are extracted. `/soul review` provides retrospective review and revert capability. The user can also edit SOUL.md directly; compaction reconciles.
 - ~~Auto-commit uses `--no-verify`~~ — Replaced with stage-only behavior (`git add` without `git commit`). No longer violates behavior invariants.
 - ~~Compaction validation is two string checks~~ — Now includes section-level bullet count comparison (reject if >50% bullet loss), diff saving, and optional approval gate. Rejected compactions are saved to staging for review.
 - ~~No user notification of hook activity~~ — Stop hooks now surface informational messages via `systemMessage`. PostCompact notifications relay through the next Stop hook invocation. All events logged to unified `soul-activity.jsonl`.
-- ~~Extraction writes behavioral rules to SOUL.md instead of invariants~~ — SOUL.md now holds facts only. Extraction classifies patterns as facts vs actions: facts go to Accumulated Knowledge, actions surface as `invariant_suggestions` via `systemMessage` for the user to add to `.soul/invariants/`. Compaction is invariant-aware and prunes action-bullets and invariant duplicates from SOUL.md. `## Predecessor Warnings` section deprecated and auto-removed by compaction.
+- ~~Extraction writes behavioral rules to SOUL.md instead of invariants~~ — SOUL.md now holds facts only. Extraction classifies patterns as facts vs actions: facts go to Accumulated Knowledge, actions are auto-written to `.soul/invariants/learned.md` and enforced immediately. Compaction is invariant-aware and prunes action-bullets and invariant duplicates from SOUL.md. `## Predecessor Warnings` section deprecated and auto-removed by compaction.
+- ~~Manual invariant creation required~~ — Extraction now auto-writes behavioral rules to `.soul/invariants/learned.md` (when `patterns.autoWriteInvariants` is true). Also emits `tool_rules` for PreToolUse enforcement. Users can edit or delete learned rules; human-authored invariants remain separate and immutable.
+- ~~Haiku for conscience and correction detection~~ — All LLM tasks now default to Sonnet. Split config: `conscience.auditModel` and `conscience.correctionModel` allow independent model selection. Backward compatible with `conscience.model` fallback.
