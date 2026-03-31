@@ -19,6 +19,10 @@ hooks:
     - hooks:
         - type: command
           command: "${CLAUDE_SKILL_DIR}/scripts/compact.sh"
+  PreToolUse:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_SKILL_DIR}/scripts/pre-tool-use.sh"
 ---
 
 # SOUL — Persistent Agent Memory
@@ -65,7 +69,8 @@ No specialized skills defined.
 ```json
 {
   "conscience": {
-    "model": "haiku",
+    "auditModel": "sonnet",
+    "correctionModel": "sonnet",
     "auditEveryNTurns": 5,
     "alwaysAuditKeywords": ["commit", "delete", "deploy", "push", "force", "drop", "remove", "destroy"],
     "killAfterNViolations": 3,
@@ -86,7 +91,11 @@ No specialized skills defined.
   "patterns": {
     "model": "sonnet",
     "extractEveryKTokens": 20,
-    "promoteToCrossProject": true
+    "promoteToCrossProject": true,
+    "autoWriteInvariants": true
+  },
+  "preToolUse": {
+    "enabled": true
   }
 }
 ```
@@ -151,6 +160,7 @@ Review what SOUL has recently learned and optionally undo entries.
    - Whether it applies to this project only or all your projects
 4. Ask the user if they want to undo any entries. For each undone entry:
    - Remove the corresponding bullet from `## Accumulated Knowledge` in `.soul/SOUL.md`
+   - If the entry was auto-written as a learned invariant: remove from `.soul/invariants/learned.md` and its matching rule from `.soul/invariants/tool-rules.json`
    - Remove the corresponding line from `~/.soul/genome/learned.md` if applicable
    - Log a `user_revert` event to `.soul/log/soul-activity.jsonl`:
      ```json
@@ -190,9 +200,9 @@ When `.soul/SOUL.md` exists and has been loaded (you'll see it in your context a
 
 1. Follow ALL rules in the Identity section and invariants without exception
 2. Reference Accumulated Knowledge (facts) when relevant to the current task
-3. Follow all invariants — they are the enforced behavioral rules
+3. Follow all invariants — they are the enforced behavioral rules. A PreToolUse hook also blocks tool calls that violate `tool-rules.json` before they execute.
 4. Communicate in language appropriate to the user's stated role
-5. When you learn something important during a session, it will be automatically saved during compaction — you don't need to do anything special
+5. When you learn something important during a session, it will be automatically saved — corrections become enforced invariants in `.soul/invariants/learned.md`, facts go to SOUL.md via compaction
 
 ## When SOUL Is Not Yet Configured
 

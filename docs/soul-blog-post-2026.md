@@ -30,7 +30,7 @@ SOUL (Structured Oversight of Unified Lineage) is a governance layer for Claude 
 
 **2. Invariants — Unbreakable Rules.** Human-authored rules the agent cannot violate. "Always confirm before modifying files." "Use plain language." "Never force-push." These are external to the agent and enforced by the conscience.
 
-**3. Conscience — Automated Audit Loop.** A `Stop` hook that runs after every agent response, checking it against your invariants. Uses a lightweight model (Haiku) for cost efficiency, escalates to blocking on violations.
+**3. Conscience — Automated Audit Loop.** A `Stop` hook that runs after every agent response, checking it against your invariants. Uses Sonnet for reliable nuance detection, escalates to blocking on violations. A `PreToolUse` hook also blocks tool calls that violate rules before they execute.
 
 **4. Genome Cascade — Shared Knowledge.** Universal agent traits live in `~/.soul/genome/base.md` and apply across all your projects. Project-specific knowledge in `.soul/SOUL.md` overrides the general — like CSS specificity for agent knowledge.
 

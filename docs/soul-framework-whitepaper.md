@@ -58,11 +58,10 @@ SOUL.md is distinct from project configuration files like CLAUDE.md:
 - **CLAUDE.md** defines *project rules* — coding style, tool preferences, repository conventions. It is about the *work*.
 - **SOUL.md** defines *agent identity* — role understanding, accumulated knowledge, behavioral patterns, failure warnings. It is about the *worker*.
 
-The document has five sections:
+The document has four sections (facts only — behavioral rules live in invariants):
 
 - **Identity**: The agent's purpose and role in this repository.
-- **Accumulated Knowledge**: Facts, patterns, and decisions confirmed across sessions.
-- **Predecessor Warnings**: Explicit failure modes from previous agent generations — things the agent must not repeat.
+- **Accumulated Knowledge**: Facts, patterns, and technical decisions confirmed across sessions.
 - **Current Understanding**: A compact summary of the codebase and task state as of the last compaction.
 - **Skills**: Declarations of specialized skill roles (see Section 2.5).
 
@@ -91,7 +90,7 @@ The conscience is a `Stop` hook that runs after every agent response, implementi
 
 **Keyword-triggered audits**: If the agent's response contains significant keywords (commit, delete, deploy, push, force), a full audit runs regardless of the turn counter.
 
-**Scheduled audits** (every N turns, configurable): The hook reads all invariants, sends the agent's last response to a lightweight model (Haiku by default) via `claude -p`, and asks: "Does this response violate any of these invariants?"
+**Scheduled audits** (every N turns, configurable): The hook reads all invariants, sends the agent's last response to a capable model (Sonnet by default) via `claude -p`, and asks: "Does this response violate any of these invariants?"
 
 **Violation handling** is tiered:
 1. **First violation**: The hook returns `{"decision": "block", "reason": "CONSCIENCE: ..."}`, which forces the agent to acknowledge the violation and correct its behavior before continuing.
@@ -99,7 +98,7 @@ The conscience is a `Stop` hook that runs after every agent response, implementi
 
 This design borrows from ALE's succession triggers (measurable degradation → forced reset) but makes it continuous rather than episodic, and external rather than self-assessed.
 
-**Cost control**: Because the conscience uses a small, fast model (Haiku) and only runs full audits on a configurable fraction of turns, the overhead is controlled and configurable. With default settings (audit every 5 turns, Haiku model), the conscience adds one Haiku API call per 5 agent turns plus triggered audits on safety-critical keywords. Cost can be tracked via the audit trail in `.soul/log/conscience.jsonl`.
+**Cost control**: The conscience only runs full audits on a configurable fraction of turns (default: every 5). With default settings (Sonnet model), the conscience adds one Sonnet API call per 5 agent turns plus triggered audits on safety-critical keywords. Cost can be tracked via the audit trail in `.soul/log/soul-activity.jsonl`.
 
 ### 2.4 Hierarchical Souls — Genome Inheritance
 
@@ -168,7 +167,7 @@ Compaction is not infallible. The framework includes several safeguards:
 - **Structural validation**: The compacted output must contain all expected sections (Identity, Accumulated Knowledge, etc.) or the update is rejected.
 - **Minimum size check**: If the compacted output is suspiciously short (< 50 characters), it is discarded.
 - **Git history**: When `autoCommit` is enabled, every compaction is a git commit, providing full rollback capability.
-- **Logging**: Every compaction event (including failures) is logged to `.soul/log/conscience.jsonl` with before/after size metrics.
+- **Logging**: Every compaction event (including failures) is logged to `.soul/log/soul-activity.jsonl` with before/after size metrics.
 
 ---
 
@@ -190,10 +189,11 @@ Compaction is not infallible. The framework includes several safeguards:
 ├── config.json                        # Conscience & compaction settings
 ├── hooks/
 │   ├── session-start.sh               # Genome assembly + context injection + skill generation
-│   ├── conscience.sh                  # Tiered audit loop
-│   └── compact.sh                     # Rolling compaction
+│   ├── conscience.sh                  # Tiered audit loop + pattern extraction
+│   ├── compact.sh                     # Rolling compaction
+│   └── pre-tool-use.sh               # PreToolUse enforcement (blocks invariant violations)
 └── log/
-    └── conscience.jsonl               # Audit trail
+    └── soul-activity.jsonl            # Unified audit trail
 
 .claude/
 ├── settings.json                      # Hook registrations
@@ -205,13 +205,14 @@ Compaction is not infallible. The framework includes several safeguards:
 
 ### 4.2 Hook Integration
 
-SOUL uses three Claude Code hooks:
+SOUL uses four Claude Code hooks:
 
 | Hook Event | Script | Purpose |
 |---|---|---|
-| `SessionStart` | `session-start.sh` | Assemble genome cascade, inject as `additionalContext`, generate skill files |
-| `Stop` | `conscience.sh` | Tiered conscience audit, block violations |
-| `PostCompact` | `compact.sh` | Rolling compaction of SOUL.md |
+| `SessionStart` | `session-start.sh` | Assemble genome cascade, inject as `additionalContext`, generate skill files, generate `tool-rules.json` |
+| `Stop` | `conscience.sh` | Tiered conscience audit, correction detection, pattern extraction, auto-write invariants |
+| `PostCompact` | `compact.sh` | Rolling compaction of SOUL.md (invariant-aware, facts-only) |
+| `PreToolUse` | `pre-tool-use.sh` | Block tool calls that violate `tool-rules.json` — no LLM call, pure bash+jq |
 
 Hooks are registered in `.claude/settings.json` and activate automatically for any `claude` session in the repository. No alias, wrapper, or launcher is needed.
 
@@ -255,7 +256,7 @@ This creates the directory structure, installs hook scripts, generates template 
 
 ALE used embedded self-monitoring (Process B) where the agent assessed its own cognitive state. This had a fundamental limitation: a degraded agent is a poor judge of its own degradation. Research on LLM self-correction confirms that LLMs generally cannot reliably correct their own mistakes without external feedback [5].
 
-SOUL externalizes the conscience to a separate model invocation (`claude -p`). This provides independence — the conscience is not subject to the working agent's context poisoning — at the cost of API calls. The cost is controlled through tiered frequency (most turns are free, audits run every N turns or on keyword triggers) and model selection (Haiku by default).
+SOUL externalizes the conscience to a separate model invocation (`claude -p`). This provides independence — the conscience is not subject to the working agent's context poisoning — at the cost of API calls. The cost is controlled through tiered frequency (most turns are free, audits run every N turns or on keyword triggers) and model selection (Sonnet by default, configurable via `auditModel`).
 
 ### 5.2 Invariants as Tests
 
@@ -288,7 +289,7 @@ The choice of model for compaction has a dramatic effect on quality. Early bench
 
 Haiku's failure is instructive: despite explicit instructions to "keep under 2000 tokens," it cannot reason about what to discard when given a large input. It defaults to preserving everything, causing unbounded growth. Sonnet 4.6's extended thinking capability appears to be the key differentiator — the model can plan its compression strategy before generating output, achieving near-Opus quality at lower cost.
 
-Based on these findings, the framework's default compaction model is Sonnet 4.6. Haiku remains the default for conscience audits, where the task (checking invariants against a response) is simpler and does not require the same compression reasoning.
+Based on these findings, the framework defaults to Sonnet 4.6 for all LLM tasks — compaction, conscience audits, correction detection, and pattern extraction. The split config (`auditModel`, `correctionModel`, `patterns.model`, `compaction.model`) allows per-task model selection, but Sonnet is the recommended minimum for reliable results.
 
 ### 5.6 Proactive Compaction Timing
 

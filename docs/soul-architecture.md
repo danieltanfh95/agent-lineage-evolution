@@ -15,9 +15,9 @@
 │       │                     ┌──────────────┼──────────────┐           │
 │       │                     │              │              │           │
 │       │              Conscience audit  Correction    Pattern          │
-│       │              (Haiku, N turns/  detection    extraction        │
+│       │              (Sonnet, N turns/ detection    extraction        │
 │       │               keywords, with   (stop words  (Sonnet, ~20k    │
-│       │               transcript ctx)   → Haiku)     tokens or flag)  │
+│       │               transcript ctx)   → Sonnet)    tokens or flag)  │
 │       │                     │              │              │           │
 │       │               block/allow     flag for      ┌────┴─────┐    │
 │       │               + systemMessage  extraction   │          │    │
@@ -123,14 +123,14 @@
 2. Check if Nth turn or keyword match
 3. If yes: collect all invariants from `.soul/invariants/*.md`
 4. Extract last N turns of conversation context from transcript (configurable via `conscience.contextTurns`, default 10, capped at 20KB)
-5. Send `last_assistant_message` + conversation context + invariants to `claude -p` (Haiku)
+5. Send `last_assistant_message` + conversation context + invariants to `claude -p` (Sonnet, configurable via `auditModel`)
 6. Parse response: `{violated: bool, invariant: string, reason: string}`
 7. If violated: return `{"decision": "block", "reason": "..."}` (blocks agent response)
 8. If violation count >= kill threshold (default 3): add "session should be restarted" to block reason
 9. If audit passes on keyword-triggered turn: surface informational `systemMessage`
 10. Log `audit_pass` or `audit_violation` event
 
-**Cost:** ~$0.002 per Haiku audit call (slightly larger with transcript context). Zero on non-audit turns.
+**Cost:** ~$0.01-0.03 per Sonnet audit call. Zero on non-audit turns.
 
 ### Phase 2: Three-Tier Correction Detection
 
@@ -138,11 +138,11 @@
 
 **Action:**
 1. **Tier 1 — Stop word scan (free):** Check last 3 human messages from transcript for correction markers (`"no"`, `"don't"`, `"stop"`, `"instead"`, `"wrong"`, `"not what I"`, configurable). If no match, skip remaining tiers.
-2. **Tier 2 — Haiku micro-prompt (~$0.0005):** Send the user message to Haiku with a ~100-token prompt: "Is this user message correcting the agent? YES/NO." Filters false positives like "no, that looks perfect."
-3. **Tier 3 — Flag for extraction:** If Haiku confirms a correction, write `/tmp/.soul-correction-flag-${SESSION_ID}`. Pattern extraction (Phase 3) checks for this flag and lowers its threshold by 5x, triggering extraction ~5x sooner after a confirmed correction.
+2. **Tier 2 — Sonnet micro-prompt (~$0.005):** Send the user message to Sonnet (configurable via `correctionModel`) with a ~100-token prompt: "Is this user message correcting the agent? YES/NO." Filters false positives like "no, that looks perfect."
+3. **Tier 3 — Flag for extraction:** If Sonnet confirms a correction, write `/tmp/.soul-correction-flag-${SESSION_ID}`. Pattern extraction (Phase 3) checks for this flag and lowers its threshold by 5x, triggering extraction ~5x sooner. The flag is only consumed once extraction actually fires (preserved on short transcripts).
 4. Log `correction_tier1` and `correction_tier2` events.
 
-**Cost:** Tier 1 is free. Tier 2 fires only when stop words match (~$0.0005 per Haiku call). Tier 3 is free (flag file).
+**Cost:** Tier 1 is free. Tier 2 fires only when stop words match (~$0.005 per Sonnet call). Tier 3 is free (flag file).
 
 ### Phase 3: Pattern Extraction
 
@@ -319,7 +319,8 @@ Same as PreToolUse, plus:
 ```json
 {
   "conscience": {
-    "model": "haiku",
+    "auditModel": "sonnet",
+    "correctionModel": "sonnet",
     "auditEveryNTurns": 5,
     "alwaysAuditKeywords": ["commit", "delete", "deploy", "push", "force", "drop", "remove", "destroy"],
     "killAfterNViolations": 3,
@@ -340,18 +341,23 @@ Same as PreToolUse, plus:
   "patterns": {
     "model": "sonnet",
     "extractEveryKTokens": 20,
-    "promoteToCrossProject": true
+    "promoteToCrossProject": true,
+    "autoWriteInvariants": true
+  },
+  "preToolUse": {
+    "enabled": true
   }
 }
 ```
 
 | Section | Key | Default | Description |
 |---|---|---|---|
-| conscience | model | `"haiku"` | Model for invariant audits and correction detection |
+| conscience | auditModel | `"sonnet"` | Model for invariant audits (falls back to `conscience.model`) |
+| conscience | correctionModel | `"sonnet"` | Model for Tier 2 correction detection (falls back to `conscience.model`) |
 | conscience | auditEveryNTurns | `5` | Full audit frequency |
 | conscience | alwaysAuditKeywords | (see above) | Keywords that force immediate audit |
 | conscience | killAfterNViolations | `3` | Session-restart threshold |
-| conscience | contextTurns | `10` | Number of transcript turns sent to Haiku for context |
+| conscience | contextTurns | `10` | Number of transcript turns sent to the audit model for context |
 | conscience | correctionDetection | `true` | Enable three-tier correction detection pipeline |
 | conscience | correctionKeywords | (see above) | Tier 1 stop words for correction detection |
 | genome | order | `["base"]` | Genome fragment load order |
@@ -363,6 +369,8 @@ Same as PreToolUse, plus:
 | patterns | model | `"sonnet"` | Model for pattern extraction |
 | patterns | extractEveryKTokens | `20` | Extraction frequency (~tokens), lowered 5x when correction detected |
 | patterns | promoteToCrossProject | `true` | Write cross-project patterns to genome |
+| patterns | autoWriteInvariants | `true` | Auto-write behavioral rules to `.soul/invariants/learned.md` |
+| preToolUse | enabled | `true` | Enable PreToolUse enforcement hook |
 
 ---
 
@@ -390,11 +398,11 @@ User message → Agent response → Stop hook →
   Phase 1 — Conscience:
     IF Nth turn or keyword match:
       Extract last ~10 turns from transcript
-      Conscience audit (Haiku) with conversation context → block or allow
+      Conscience audit (Sonnet) with conversation context → block or allow
       → systemMessage if keyword audit passed
   Phase 2 — Correction detection:
     Tier 1: Stop word scan on last 3 user messages (free)
-    IF match → Tier 2: Haiku micro-prompt "Is this a correction?" (~$0.0005)
+    IF match → Tier 2: Sonnet micro-prompt "Is this a correction?" (~$0.005)
     IF confirmed → Tier 3: Flag for extraction threshold reduction
   Phase 3 — Pattern extraction:
     IF transcript grew >= ~80KB since last extraction (or 16KB if correction flagged):
@@ -530,7 +538,7 @@ Exported skills are valid Claude Code skills. Distribution via:
 - ~~No genome compaction~~ — `compact.sh` now compacts `~/.soul/genome/learned.md` when it exceeds 5000 chars, during the same PostCompact event that compacts SOUL.md.
 - ~~Token count estimation~~ — With a 1M context window, ±20% on a 20k trigger threshold is irrelevant.
 - ~~PreToolUse/PostToolUse unused~~ — PreToolUse now implemented as `pre-tool-use.sh`. Reads `tool-rules.json` to block invariant violations before they happen. Pure bash + jq, no LLM calls, ~10-50ms per tool call.
-- ~~No user-message hook~~ — Three-tier correction detection (stop words → Haiku micro-prompt → extraction flag) provides near-real-time correction capture without a dedicated user-message hook. Corrections trigger extraction within ~4k tokens instead of waiting for the full 20k threshold.
+- ~~No user-message hook~~ — Three-tier correction detection (stop words → Sonnet micro-prompt → extraction flag) provides near-real-time correction capture without a dedicated user-message hook. Corrections trigger extraction within ~4k tokens instead of waiting for the full 20k threshold.
 - ~~No feedback loop on extraction~~ — `systemMessage` notifications inform the user when patterns are extracted. `/soul review` provides retrospective review and revert capability. The user can also edit SOUL.md directly; compaction reconciles.
 - ~~Auto-commit uses `--no-verify`~~ — Replaced with stage-only behavior (`git add` without `git commit`). No longer violates behavior invariants.
 - ~~Compaction validation is two string checks~~ — Now includes section-level bullet count comparison (reject if >50% bullet loss), diff saving, and optional approval gate. Rejected compactions are saved to staging for review.

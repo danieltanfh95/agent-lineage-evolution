@@ -46,7 +46,7 @@ SOUL is built on five pillars:
 
 | Component | Purpose |
 |-----------|---------|
-| **SOUL.md** | Persistent agent identity — who it is, what it knows, what mistakes to avoid |
+| **SOUL.md** | Persistent agent identity — who it is, what it knows (facts only — behavioral rules live in invariants) |
 | **Invariants** | Human-authored, agent-immutable rules checked by the conscience |
 | **Conscience** | A `Stop` hook that audits agent responses against invariants |
 | **Genome Cascade** | Hierarchical knowledge inheritance (global → language → archetype → repo) |
@@ -58,7 +58,7 @@ SOUL is built on five pillars:
 .soul/                    # Framework implementation
   SOUL.md                 # Repo-level agent identity
   invariants/             # Human-authored rules
-  hooks/                  # session-start.sh, conscience.sh, compact.sh
+  hooks/                  # session-start.sh, conscience.sh, compact.sh, pre-tool-use.sh
   config.json             # Conscience & compaction settings
   log/                    # Audit trail
 .claude/                  # Claude Code config + generated skills
