@@ -4,11 +4,7 @@
 
 ## Accumulated Knowledge
 
-No knowledge accumulated yet.
-
-## Predecessor Warnings
-
-No warnings yet.
+No facts accumulated yet.
 
 ## Current Understanding
 

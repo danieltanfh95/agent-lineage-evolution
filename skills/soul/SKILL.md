@@ -48,9 +48,6 @@ I am a [role] assistant working on [project context from their answers].
 ## Accumulated Knowledge
 [Facts from their knowledge answer, as bullet points]
 
-## Predecessor Warnings
-No warnings yet.
-
 ## Current Understanding
 Project freshly configured via /soul setup.
 
@@ -139,9 +136,9 @@ Steps:
 3. Check if `mode: fork` should be set (look for `context: fork` in YAML frontmatter)
 4. Append the skill to `## Skills` section of `.soul/SOUL.md` as a `### <name>` block
 5. Read `# Relevant Knowledge` section — merge new bullets into `## Accumulated Knowledge` in SOUL.md, skipping duplicates
-6. Read `# Warnings` section — merge new bullets into `## Predecessor Warnings` in SOUL.md, skipping duplicates
+6. Read `# Warnings` section — show warnings to the user and suggest adding them to `.soul/invariants/behavior.md` (warnings are behavioral rules — they belong in invariants, not SOUL.md)
 7. If `# Invariants` section exists, show the invariants to the user and ask if they want to add them to `.soul/invariants/` (invariants are human-authored — never auto-merge)
-8. Confirm: "Imported <name> skill with N knowledge points and M warnings. Active next session."
+8. Confirm: "Imported <name> skill with N knowledge points. Active next session."
 
 ### `/soul review`
 Review what SOUL has recently learned and optionally undo entries.
@@ -153,7 +150,7 @@ Review what SOUL has recently learned and optionally undo entries.
    - Each pattern: what I learned, why, and a quote from the conversation
    - Whether it applies to this project only or all your projects
 4. Ask the user if they want to undo any entries. For each undone entry:
-   - Remove the corresponding bullet from `## Accumulated Knowledge` or `## Predecessor Warnings` in `.soul/SOUL.md`
+   - Remove the corresponding bullet from `## Accumulated Knowledge` in `.soul/SOUL.md`
    - Remove the corresponding line from `~/.soul/genome/learned.md` if applicable
    - Log a `user_revert` event to `.soul/log/soul-activity.jsonl`:
      ```json
@@ -192,8 +189,8 @@ List all available skills and their source.
 When `.soul/SOUL.md` exists and has been loaded (you'll see it in your context at session start):
 
 1. Follow ALL rules in the Identity section and invariants without exception
-2. Reference Accumulated Knowledge when relevant to the current task
-3. Heed Predecessor Warnings to avoid known pitfalls
+2. Reference Accumulated Knowledge (facts) when relevant to the current task
+3. Follow all invariants — they are the enforced behavioral rules
 4. Communicate in language appropriate to the user's stated role
 5. When you learn something important during a session, it will be automatically saved during compaction — you don't need to do anything special
 

@@ -54,7 +54,7 @@ COMPACT_MODEL_ID=$(map_model_id "$COMPACT_MODEL")
 # Output format: "Section Name:count" per line
 count_section_bullets() {
   local content="$1"
-  local sections=("Accumulated Knowledge" "Predecessor Warnings" "Current Understanding" "Identity" "Skills")
+  local sections=("Accumulated Knowledge" "Current Understanding" "Identity" "Skills")
 
   for section in "${sections[@]}"; do
     local count
@@ -96,11 +96,30 @@ fi
 CURRENT_SOUL=$(cat "$SOUL_FILE")
 BEFORE_COUNTS=$(count_section_bullets "$CURRENT_SOUL")
 
+# --- Read current invariants for deduplication ---
+CURRENT_INVARIANTS=""
+if [ -d "${SOUL_DIR}/invariants" ]; then
+  for inv_file in "${SOUL_DIR}/invariants"/*.md; do
+    if [ -f "$inv_file" ]; then
+      name=$(basename "$inv_file" .md)
+      CURRENT_INVARIANTS+="
+--- ${name} ---
+$(cat "$inv_file")
+"
+    fi
+  done
+fi
+
 # --- Build compaction prompt ---
 COMPACT_PROMPT="You are a soul compaction system for the SOUL framework. Your job is to merge new session knowledge into an existing SOUL.md file.
 
+IMPORTANT: SOUL.md holds FACTS only — things that are true about the project, tools, codebase, and architecture. Behavioral rules (DO this, DON'T do that, NEVER, ALWAYS) belong in invariants, NOT in SOUL.md.
+
 CURRENT SOUL.MD:
 ${CURRENT_SOUL}
+
+CURRENT INVARIANTS (human-authored, enforced separately — do NOT duplicate these in SOUL.md):
+${CURRENT_INVARIANTS}
 
 SESSION CONTEXT (recent transcript excerpts):
 ${SESSION_SUMMARY}
@@ -109,16 +128,18 @@ RECENT GIT HISTORY:
 ${GIT_SUMMARY}
 
 INSTRUCTIONS:
-1. Merge any new knowledge from the session into the appropriate sections of SOUL.md
-2. Update 'Accumulated Knowledge' with confirmed patterns, decisions, and discoveries
-3. Update 'Predecessor Warnings' if new failure modes were encountered
-4. Update 'Current Understanding' to reflect the latest state of the codebase/task
-5. Resolve contradictions — newer information wins, but note the contradiction briefly
-6. PRUNE information that is stale, redundant, or no longer relevant
-7. Keep the document concise — compaction means compression, not accumulation
-8. Preserve the existing section structure (Identity, Accumulated Knowledge, Predecessor Warnings, Current Understanding, Skills)
-9. Do NOT add sections that don't exist in the original
-10. Do NOT remove the ## Skills section or modify skill definitions unless the session explicitly changed them
+1. Merge any new FACTUAL knowledge from the session into SOUL.md
+2. Update 'Accumulated Knowledge' with confirmed facts, technical decisions, and discoveries — NOT behavioral rules
+3. Update 'Current Understanding' to reflect the latest state of the codebase/task
+4. Resolve contradictions — newer information wins, but note the contradiction briefly
+5. PRUNE: Remove information that is stale, redundant, or no longer relevant
+6. PRUNE: Remove any bullet that is a behavioral rule (DO/DON'T/NEVER/ALWAYS instructions) — those belong in invariants, not SOUL.md
+7. PRUNE: Remove any bullet that restates something already covered by the INVARIANTS above
+8. If a '## Predecessor Warnings' section exists, REMOVE THE ENTIRE SECTION and its contents — this section is deprecated. Do not preserve it.
+9. Keep the document concise — compaction means compression, not accumulation
+10. Preserve the remaining section structure (Identity, Accumulated Knowledge, Current Understanding, Skills)
+11. Do NOT add sections that don't exist in the original (except: removing Predecessor Warnings is always correct)
+12. Do NOT remove the ## Skills section or modify skill definitions unless the session explicitly changed them
 
 Output ONLY the updated SOUL.md content. No markdown fencing, no preamble, no explanation. Just the raw markdown content of the updated file."
 

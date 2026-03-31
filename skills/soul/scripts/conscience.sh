@@ -372,6 +372,20 @@ $(cat "$genome_file")
     done
   fi
 
+  # --- Read current invariants ---
+  CURRENT_INVARIANTS=""
+  if [ -d "${SOUL_DIR}/invariants" ]; then
+    for inv_file in "${SOUL_DIR}/invariants"/*.md; do
+      if [ -f "$inv_file" ]; then
+        name=$(basename "$inv_file" .md)
+        CURRENT_INVARIANTS+="
+--- ${name} ---
+$(cat "$inv_file")
+"
+      fi
+    done
+  fi
+
   # --- Build extraction prompt ---
   EXTRACT_PROMPT="You are a pattern extraction system for the SOUL framework. Read this conversation transcript and identify three types of patterns:
 
@@ -389,11 +403,20 @@ Classify each pattern's scope:
 - \"repo\" — specific to this project (e.g., \"use Knex not raw SQL in this codebase\")
 - \"cross-project\" — applies everywhere (e.g., \"user prefers concise responses\")
 
+IMPORTANT — FACTS vs ACTIONS classification:
+- A FACT is something that IS TRUE: \"LuaJIT uses Lua 5.1 syntax\", \"the API uses REST not GraphQL\", \"Redis is the caching layer\"
+- An ACTION is a behavioral rule telling the agent what to DO or NOT DO: \"never use subagents\", \"always ask before deleting\", \"don't summarize\"
+- soul_updates.accumulated_knowledge accepts ONLY facts — things about the project, tools, or codebase that are true
+- Actions (behavioral rules) go in invariant_suggestions instead — they need human review to become enforced invariants
+
 CURRENT SOUL.MD:
 ${CURRENT_SOUL}
 
 CURRENT GENOME:
 ${CURRENT_GENOME}
+
+CURRENT INVARIANTS (human-authored, immutable — stored in .soul/invariants/):
+${CURRENT_INVARIANTS}
 
 RECENT TRANSCRIPT:
 ${TRANSCRIPT_WINDOW}
@@ -410,9 +433,15 @@ Output ONLY valid JSON (no markdown fencing):
     }
   ],
   \"soul_updates\": {
-    \"accumulated_knowledge\": [\"new bullet points to add — include both corrections (what NOT to do) and confirmations (what TO keep doing)\"],
-    \"predecessor_warnings\": [\"new warnings to add (from corrections only)\"]
+    \"accumulated_knowledge\": [\"FACTS ONLY — things that are true about the project, tools, or codebase. NO behavioral rules or DO/DON'T instructions.\"]
   },
+  \"invariant_suggestions\": [
+    {
+      \"rule\": \"concise behavioral rule (e.g., 'Never use subagents for implementation tasks')\",
+      \"evidence\": \"why this qualifies — quote the user's words\",
+      \"suggested_file\": \"behavior.md or architecture.md or a new descriptive filename\"
+    }
+  ],
   \"genome_updates\": [\"new lines for ~/.soul/genome/learned.md\"]
 }
 
@@ -423,6 +452,9 @@ Rules:
 - If no patterns found, return empty arrays for all fields
 - Cross-project patterns must be genuinely universal, not project-specific
 - Do not duplicate patterns already present in SOUL.md or the genome
+- Do not write to soul_updates anything already covered by the INVARIANTS above
+- accumulated_knowledge is for FACTS only — if a pattern is an action/rule, put it in invariant_suggestions instead
+- invariant_suggestions should contain behavioral rules, especially those with absolute language (never/always) or user frustration/repetition
 - Balance corrections and confirmations — both are valuable signals"
 
   # --- Run extraction via claude -p ---
@@ -480,26 +512,18 @@ Rules:
     done <<< "$AK_UPDATES"
   fi
 
-  # Append to Predecessor Warnings
-  PW_UPDATES=$(echo "$EXTRACT_RESULT" | jq -r '.soul_updates.predecessor_warnings // [] | .[]' 2>/dev/null) || true
-  if [ -n "$PW_UPDATES" ]; then
-    while IFS= read -r bullet; do
-      if [ -n "$bullet" ]; then
-        if grep -q "^## Predecessor Warnings" "$SOUL_FILE"; then
-          PW_LINE=$(grep -n "^## Predecessor Warnings" "$SOUL_FILE" | head -1 | cut -d: -f1)
-          NEXT_SECTION=$(tail -n +"$((PW_LINE + 1))" "$SOUL_FILE" | grep -n "^## " | head -1 | cut -d: -f1)
-          if [ -n "$NEXT_SECTION" ]; then
-            INSERT_LINE=$((PW_LINE + NEXT_SECTION))
-            sed "${INSERT_LINE}i\\
-- ${bullet}
-" "$SOUL_FILE" > "${SOUL_FILE}.tmp" && mv "${SOUL_FILE}.tmp" "$SOUL_FILE"
-          else
-            echo "- ${bullet}" >> "$SOUL_FILE"
-          fi
-          SOUL_MODIFIED=true
-        fi
-      fi
-    done <<< "$PW_UPDATES"
+  # --- Process invariant_suggestions → notify user ---
+  INV_SUGGESTIONS=$(echo "$EXTRACT_RESULT" | jq -r '.invariant_suggestions // [] | length' 2>/dev/null) || INV_SUGGESTIONS=0
+  if [ "$INV_SUGGESTIONS" -gt 0 ]; then
+    INV_RULES=$(echo "$EXTRACT_RESULT" | jq -r '.invariant_suggestions[] | "\"" + .rule + "\" → " + .suggested_file' 2>/dev/null) || true
+    if [ -n "$INV_RULES" ]; then
+      NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Suggested invariant(s): ${INV_RULES}. Add to .soul/invariants/ to enforce"
+
+      log_soul_event "invariant_suggestion" \
+        --argjson turn "$TURN_COUNT" \
+        --argjson count "$INV_SUGGESTIONS" \
+        --argjson suggestions "$(echo "$EXTRACT_RESULT" | jq -c '.invariant_suggestions // []')"
+    fi
   fi
 
   # --- Apply genome_updates to ~/.soul/genome/learned.md ---
@@ -533,11 +557,13 @@ LEARNED_INIT
 
   # --- Log extraction to unified activity log ---
   PATTERN_SUMMARIES=$(echo "$EXTRACT_RESULT" | jq -c '[.patterns[].summary]' 2>/dev/null) || PATTERN_SUMMARIES="[]"
+  INV_SUGGESTION_COUNT=$(echo "$EXTRACT_RESULT" | jq '.invariant_suggestions // [] | length' 2>/dev/null) || INV_SUGGESTION_COUNT=0
   log_soul_event "extraction" \
     --argjson turn "$TURN_COUNT" \
     --argjson pattern_count "$PATTERN_COUNT" \
     --argjson patterns "$PATTERN_SUMMARIES" \
     --argjson soul_modified "$SOUL_MODIFIED" \
+    --argjson invariant_suggestions "$INV_SUGGESTION_COUNT" \
     --arg model "$PATTERN_MODEL_ID" \
     --argjson transcript_offset "$TRANSCRIPT_SIZE"
 

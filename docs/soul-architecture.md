@@ -155,14 +155,15 @@
 4. Read transcript window (last offset → current end, capped at 200KB)
 5. Read current SOUL.md and genome files
 6. Send to `claude -p` (Sonnet) with extraction prompt
-7. Parse response: structured JSON with patterns, soul_updates, genome_updates
-8. Append repo-specific patterns to `.soul/SOUL.md` (Accumulated Knowledge / Predecessor Warnings sections)
-9. Append cross-project patterns to `~/.soul/genome/learned.md`
-10. Log extraction details to `.soul/staging/recent-extractions.jsonl` (for `/soul review`)
-11. Update offset tracking file
-12. Log `extraction` event to unified activity log
-13. If SOUL.md was modified: auto-export all skills via `export-skill.sh --quiet`, log `skill_export` events
-14. Surface `systemMessage` notification: "Extracted N patterns, applied to SOUL.md -- /soul review to inspect"
+7. Parse response: structured JSON with patterns, soul_updates, invariant_suggestions, genome_updates
+8. Append repo-specific FACTS to `.soul/SOUL.md` (Accumulated Knowledge section only — no behavioral rules)
+9. If invariant_suggestions found: surface via `systemMessage` ("Consider adding to .soul/invariants/"). Log `invariant_suggestion` event.
+10. Append cross-project patterns to `~/.soul/genome/learned.md`
+11. Log extraction details to `.soul/staging/recent-extractions.jsonl` (for `/soul review`)
+12. Update offset tracking file
+13. Log `extraction` event to unified activity log
+14. If SOUL.md was modified: auto-export all skills via `export-skill.sh --quiet`, log `skill_export` events
+15. Surface `systemMessage` notification: "Extracted N patterns, applied to SOUL.md -- /soul review to inspect"
 
 **Cost:** ~$0.02 per Sonnet extraction call + ~$0.02 per skill for auto-export. Fires roughly every 20k tokens of conversation (more frequently after corrections).
 
@@ -179,7 +180,7 @@ or exit 0 (silent, no output).
 Also picks up pending compaction notifications from `/tmp/.soul-compact-notify-${SESSION_ID}` (relayed from PostCompact hook) and surfaces them via `systemMessage`.
 
 **Writes to:**
-- `.soul/SOUL.md` — appends new bullets to Accumulated Knowledge and Predecessor Warnings
+- `.soul/SOUL.md` — appends new factual bullets to Accumulated Knowledge (facts only, no behavioral rules)
 - `~/.soul/genome/learned.md` — appends cross-project patterns (created on first extraction)
 - `.soul/exports/<name>/SKILL.md` — re-exported with fresh knowledge (when SOUL.md modified)
 - `.soul/staging/recent-extractions.jsonl` — extraction log for `/soul review`
@@ -217,7 +218,8 @@ Phase 1 — SOUL.md compaction:
 1. Read last 100 transcript entries (assistant + tool_result messages, capped at 8000 chars)
 2. Read last 10 git commits
 3. Read current SOUL.md and count bullets per section (before snapshot)
-4. Send all to `claude -p` (Sonnet, configurable) with compaction prompt
+3b. Read `.soul/invariants/*.md` for deduplication awareness
+4. Send all to `claude -p` (Sonnet, configurable) with compaction prompt. The prompt includes current invariants and instructs the model to: keep only facts in SOUL.md, remove action-bullets (DO/DON'T/NEVER/ALWAYS), prune duplicates of invariant rules, and remove any deprecated `## Predecessor Warnings` section.
 5. Basic validation: must be >50 chars, must contain `## Identity`
 6. **Semantic validation:** Count bullets per section in result. If any section lost >50% bullets (configurable via `compaction.maxBulletLossPercent`), reject and save to `.soul/staging/rejected-compaction.md`
 7. Save diff to `.soul/staging/last-compaction-diff.txt`
@@ -445,7 +447,7 @@ Skills are imprinted knowledge — a combination of a role description, relevant
 `/soul export <name>` or automatic on compaction:
 
 1. Parse skill definition from `## Skills` in SOUL.md
-2. Gather Accumulated Knowledge, Predecessor Warnings, invariants
+2. Gather Accumulated Knowledge, invariants
 3. Call `claude -p` (Sonnet) to filter for only knowledge relevant to this skill's role
 4. Assemble standalone SKILL.md with YAML frontmatter + baked-in knowledge sections
 5. Write PROVENANCE.md with git origin, commit hash, timestamp
@@ -460,7 +462,7 @@ Skills are imprinted knowledge — a combination of a role description, relevant
 1. Read source SKILL.md
 2. Extract role → append to `## Skills` in SOUL.md
 3. Merge knowledge bullets into `## Accumulated Knowledge` (deduplicate)
-4. Merge warnings into `## Predecessor Warnings` (deduplicate)
+4. Show warnings to user and suggest adding to `.soul/invariants/` (behavioral rules belong in invariants)
 5. Offer to merge invariants (requires user confirmation — human-authored)
 
 ### Genome skills
@@ -508,3 +510,4 @@ Exported skills are valid Claude Code skills. Distribution via:
 - ~~Auto-commit uses `--no-verify`~~ — Replaced with stage-only behavior (`git add` without `git commit`). No longer violates behavior invariants.
 - ~~Compaction validation is two string checks~~ — Now includes section-level bullet count comparison (reject if >50% bullet loss), diff saving, and optional approval gate. Rejected compactions are saved to staging for review.
 - ~~No user notification of hook activity~~ — Stop hooks now surface informational messages via `systemMessage`. PostCompact notifications relay through the next Stop hook invocation. All events logged to unified `soul-activity.jsonl`.
+- ~~Extraction writes behavioral rules to SOUL.md instead of invariants~~ — SOUL.md now holds facts only. Extraction classifies patterns as facts vs actions: facts go to Accumulated Knowledge, actions surface as `invariant_suggestions` via `systemMessage` for the user to add to `.soul/invariants/`. Compaction is invariant-aware and prunes action-bullets and invariant duplicates from SOUL.md. `## Predecessor Warnings` section deprecated and auto-removed by compaction.

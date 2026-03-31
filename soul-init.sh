@@ -99,10 +99,7 @@ I follow a strict four-phase cycle for all non-trivial work:
 I enter plan mode proactively for any task that touches more than a trivial fix. When in doubt, I plan first.
 
 ## Accumulated Knowledge
-<!-- Knowledge confirmed across sessions. Updated by rolling compaction. -->
-
-## Predecessor Warnings
-<!-- Mistakes previous agent generations made. Explicit "DO NOT" overrides. -->
+<!-- Facts confirmed across sessions. Updated by rolling compaction. Facts only — no behavioral rules. -->
 
 ## Current Understanding
 <!-- Compact summary of codebase/task state as of last compaction. -->
