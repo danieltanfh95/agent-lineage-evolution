@@ -1,87 +1,159 @@
-# SOUL: Structured Oversight of Unified Lineage
+# Imprint — Behavioral Pattern Extraction for AI Coding Agents
 
 [![DOI](https://zenodo.org/badge/DOI/PLACEHOLDER.svg)](https://doi.org/PLACEHOLDER)
 
-A governance framework for persistent agent identity in Claude Code. SOUL addresses LLM agent memory degradation through rolling knowledge compaction, conscience-based audit loops, human-authored invariants, and hierarchical genome inheritance.
+Imprint detects behavioral corrections from your conversations with AI coding agents and turns them into persistent, enforceable rules. It solves the problem of AI agents forgetting your preferences between sessions and within long sessions (instruction drift at ~150k tokens).
 
-SOUL extends the [Agent Lineage Evolution (ALE)](https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation) framework from episodic succession to continuous governance, leveraging Claude Code's native hooks system.
+Successor to [SOUL](docs/archive/soul-framework-whitepaper.md) and [ALE](docs/ale-blog-post-2025.md), focusing on behavioral pattern extraction over full agent governance.
+
+## The Problem
+
+You tell your AI agent "don't use subagents" or "always read before editing." It follows for a while, then forgets — either when the session ends or after enough context accumulates. You correct the same behavior over and over.
+
+## How Imprint Works
+
+**Three enforcement tiers** ensure rules survive both session boundaries and context drift:
+
+| Tier | How | Cost | Survives Drift? |
+|------|-----|------|----------------|
+| **Mechanical** | PreToolUse hook blocks tool calls via regex | $0, ~10ms | Yes — runs outside agent context |
+| **Semantic** | PreToolUse prompt hook (Sonnet) evaluates tool calls | ~$0.005/call | Yes — runs outside agent context |
+| **Advisory** | Stop hook periodically re-injects rules via `additionalContext` | $0 | Yes — refreshed every N turns |
+
+**Extraction pipeline** (runs automatically on the Stop hook):
+1. **Tier 1**: Free keyword scan — did the user say "no", "don't", "stop", "instead"?
+2. **Tier 2**: Sonnet micro-prompt — "Is this actually a correction?" (~$0.005)
+3. **Tier 3**: Sonnet extracts a rule with enforcement directives → writes individual rule file
+
+**Retrospective analysis** — extract rules from past transcripts:
+```bash
+./scripts/imprint-extract-cli.sh --last           # Most recent session
+./scripts/imprint-extract-cli.sh --interactive     # Explore transcript interactively
+./scripts/imprint-skill-extract.sh --last --apply  # Extract replayable skill bundle
+```
 
 ## Quick Start
 
-### Option A: Install as a Claude Code skill (recommended)
-
 ```bash
-npx skills add danieltanfh95/agent-lineage-evolution --skill soul
+./scripts/imprint-init.sh
 ```
 
-Then in Claude Code:
+This creates `~/.imprint/` (global rules + hooks) and `.imprint/` (project rules), and registers hooks in `~/.claude/settings.json`.
+
+Then use Claude Code normally. Imprint runs silently in the background — when you correct the agent, rules are extracted automatically.
+
+### Commands (via /imprint skill)
+
+| Command | What it does |
+|---------|-------------|
+| `/imprint show` | Show all active rules after cascade resolution |
+| `/imprint review` | Review recently extracted rules, enable/disable/delete |
+| `/imprint add <text>` | Manually add a rule |
+| `/imprint extract` | Retrospective extraction from past transcripts |
+| `/imprint skill extract` | Extract replayable skill from a transcript |
+| `/imprint resolve` | Manually re-run cascade resolution |
+
+## Architecture
+
+### Rules as Individual Files
+
+Each rule is a markdown file with YAML frontmatter:
+
+```markdown
+---
+id: no-force-push
+scope: global
+enforcement: mechanical
+type: correction
+source:
+  session: abc-123
+  timestamp: 2026-04-01T10:00:00Z
+  evidence: "User said: never force push"
+overrides: []
+enabled: true
+---
+
+Never force-push without explicit user confirmation.
+
+## Enforcement
+- block_bash_pattern: "git push.*(--force|-f)"
+- reason: "Force-push blocked — user requires explicit confirmation"
+```
+
+### CSS-like Cascading
 
 ```
-/soul setup
+~/.imprint/rules/           # Global rules (all projects)
+.imprint/rules/             # Project rules (override global with same id)
 ```
 
-Answer 3 questions about your role, rules, and project knowledge. Done — SOUL is active.
+Resolution: project rules with the same `id` override global rules. Rules with `overrides: [id]` explicitly cancel referenced rules. Disabled rules (`enabled: false`) are filtered out.
 
-### Option B: Manual setup
+### Hook Architecture
 
-```bash
-./soul-init.sh
+| Hook | Event | Type | Purpose |
+|------|-------|------|---------|
+| `imprint-session-start.sh` | SessionStart | command | Cascade resolve + inject advisory rules |
+| `imprint-pre-tool-use.sh` | PreToolUse | command | Mechanical enforcement (free, deterministic) |
+| (inline prompt) | PreToolUse | prompt | Semantic enforcement (Sonnet, ~$0.005) |
+| `imprint-stop.sh` | Stop | command | Correction detection + extraction + re-injection |
+| (inline prompt) | Stop | prompt | Response audit against advisory rules |
+
+### Skill Extraction
+
+Extract replayable skill bundles from transcripts — a SKILL.md containing trigger conditions, workflow steps, domain knowledge, and task-specific rules:
+
+```
+~/.imprint/skills/<name>/SKILL.md    # Global skills
+.imprint/skills/<name>/SKILL.md      # Project skills
 ```
 
-This creates the `.soul/` directory structure, installs hook scripts, and registers them in `.claude/settings.json`. Then:
+## Directory Structure
 
-1. Edit `.soul/SOUL.md` — fill in your agent's Identity section
-2. Edit `.soul/invariants/*.md` — add your project's invariants
-3. Start a `claude` session — the soul is injected automatically
+```
+scripts/                              # Hook scripts and CLI tools
+  lib.sh                              # Shared utilities
+  imprint-resolve.sh                  # Cascade resolution → compiled artifacts
+  imprint-pre-tool-use.sh             # Mechanical PreToolUse enforcement
+  imprint-stop.sh                     # Stop hook (detection + extraction + re-injection)
+  imprint-session-start.sh            # SessionStart hook
+  imprint-init.sh                     # One-time setup
+  imprint-extract-cli.sh              # Retrospective rule extraction
+  imprint-skill-extract.sh            # Retrospective skill extraction
+  SKILL.md                            # /imprint commands
+tests/
+  test_imprint.sh                     # Hook regression tests (no API calls)
+docs/                                 # Architecture docs and whitepaper
+  archive/                            # Previous SOUL framework docs
+experiments/                          # Empirical validation
+```
 
 ## Documentation
 
-- **[SOUL Framework Whitepaper](docs/soul-framework-whitepaper.md)** — Full technical description of the framework's architecture, design decisions, and relationship to prior work
-- **[ALE Blog Post](docs/ale-blog-post-2025.md)** — The original Agent Lineage Evolution blog post (June 2025), the conceptual predecessor to SOUL
-- **[Experiments](experiments/README.md)** — Empirical validation protocols and results for SOUL's core claims
+- **[Architecture (coming soon)](docs/imprint-architecture.md)** — Technical description of the three-tier enforcement model
+- **[ALE Blog Post](docs/ale-blog-post-2025.md)** — The 2025 predecessor: Agent Lineage Evolution
+- **[SOUL Whitepaper](docs/archive/soul-framework-whitepaper.md)** — Previous iteration: full agent governance
+- **[Experiments](experiments/README.md)** — Empirical validation protocols
 
-## How It Works
+## Prior Work
 
-SOUL is built on five pillars:
+Imprint is the third iteration of this research:
 
-| Component | Purpose |
-|-----------|---------|
-| **SOUL.md** | Persistent agent identity — who it is, what it knows (facts only — behavioral rules live in invariants) |
-| **Invariants** | Human-authored, agent-immutable rules checked by the conscience |
-| **Conscience** | A `Stop` hook that audits agent responses against invariants |
-| **Genome Cascade** | Hierarchical knowledge inheritance (global → language → archetype → repo) |
-| **Rolling Compaction** | LSM-tree-inspired knowledge refinement on `PostCompact` events |
-
-## Repository Structure
-
-```
-.soul/                    # Framework implementation
-  SOUL.md                 # Repo-level agent identity
-  invariants/             # Human-authored rules
-  hooks/                  # session-start.sh, conscience.sh, compact.sh, pre-tool-use.sh
-  config.json             # Conscience & compaction settings
-  log/                    # Audit trail
-.claude/                  # Claude Code config + generated skills
-docs/                     # Whitepaper and ALE blog post
-experiments/              # Empirical validation protocols and results
-soul-init.sh              # One-command framework initialization
-```
+1. **ALE (2025)** — Agent Lineage Evolution: episodic succession, agents pass memory packages to successors
+2. **SOUL (2026)** — Structured Oversight of Unified Lineage: continuous governance with conscience audit loops, genome cascade, rolling compaction
+3. **Imprint (2026)** — Focused on behavioral pattern extraction and mechanical enforcement. Drops identity/knowledge concerns. Adds CSS-like rule cascading, retrospective transcript analysis, and skill extraction.
 
 ## Citation
 
-If you use SOUL in your research or projects, please cite:
-
 ```bibtex
-@software{tan_soul_2026,
+@software{tan_imprint_2026,
   author = {Tan, Daniel},
-  title = {SOUL: Structured Oversight of Unified Lineage},
+  title = {Imprint: Behavioral Pattern Extraction for AI Coding Agents},
   year = {2026},
   url = {https://github.com/danieltanfh95/agent-lineage-evolution},
-  version = {1.0.0}
+  version = {2.0.0}
 }
 ```
-
-See also [CITATION.cff](CITATION.cff) for machine-readable citation metadata.
 
 ## License
 
