@@ -589,6 +589,209 @@ test_model_mapping() {
 }
 
 # ============================================================
+# TEST: lib.sh — parse_rule_frontmatter with category + effectiveness
+# ============================================================
+
+test_lib_parse_category_effectiveness() {
+  echo "=== Test: lib.sh parse category + effectiveness ==="
+  setup
+
+  source "$SCRIPTS_DIR/lib.sh"
+
+  # Create rule with category and effectiveness
+  cat > "$HOME/.succession/rules/test-cat.md" << 'EOF'
+---
+id: test-cat
+scope: global
+enforcement: mechanical
+category: failure-inheritance
+type: correction
+source:
+  session: test
+  timestamp: 2026-01-01T00:00:00Z
+  evidence: "test"
+overrides: []
+enabled: true
+effectiveness:
+  times_followed: 5
+  times_violated: 2
+  times_overridden: 1
+  last_evaluated: 2026-04-01T00:00:00Z
+---
+
+Test rule with category.
+EOF
+
+  local result
+  result=$(parse_rule_frontmatter "$HOME/.succession/rules/test-cat.md")
+
+  assert_json_valid "frontmatter with category is valid JSON" "$result"
+  assert_eq "category parsed" "failure-inheritance" "$(echo "$result" | jq -r '.category')"
+  assert_eq "times_followed parsed" "5" "$(echo "$result" | jq -r '.effectiveness.times_followed')"
+  assert_eq "times_violated parsed" "2" "$(echo "$result" | jq -r '.effectiveness.times_violated')"
+  assert_eq "times_overridden parsed" "1" "$(echo "$result" | jq -r '.effectiveness.times_overridden')"
+  assert_eq "last_evaluated parsed" "2026-04-01T00:00:00Z" "$(echo "$result" | jq -r '.effectiveness.last_evaluated')"
+
+  teardown
+}
+
+# ============================================================
+# TEST: lib.sh — parse_rule_frontmatter defaults (no category/effectiveness)
+# ============================================================
+
+test_lib_parse_defaults() {
+  echo "=== Test: lib.sh backwards compat defaults ==="
+  setup
+
+  source "$SCRIPTS_DIR/lib.sh"
+
+  # Create old-style rule without category/effectiveness
+  create_rule_file "$HOME/.succession/rules" "old-rule" "advisory" "Old rule without category."
+
+  local result
+  result=$(parse_rule_frontmatter "$HOME/.succession/rules/old-rule.md")
+
+  assert_eq "category defaults to strategy" "strategy" "$(echo "$result" | jq -r '.category')"
+  assert_eq "times_followed defaults to 0" "0" "$(echo "$result" | jq -r '.effectiveness.times_followed')"
+  assert_eq "times_violated defaults to 0" "0" "$(echo "$result" | jq -r '.effectiveness.times_violated')"
+
+  teardown
+}
+
+# ============================================================
+# TEST: lib.sh — log_meta_cognition_event
+# ============================================================
+
+test_meta_cognition_logging() {
+  echo "=== Test: lib.sh meta-cognition logging ==="
+  setup
+
+  source "$SCRIPTS_DIR/lib.sh"
+  SESSION_ID="test-session"
+
+  log_meta_cognition_event "rule_created" --arg rule_id "test-rule" --arg category "strategy" --arg source "extraction"
+  log_meta_cognition_event "rule_violated" --arg rule_id "test-rule" --arg context "bad command" --arg detected_by "pre-tool-use"
+
+  local log_file="$HOME/.succession/log/meta-cognition.jsonl"
+  assert_file_exists "meta-cognition log created" "$log_file"
+
+  local line_count
+  line_count=$(wc -l < "$log_file" | tr -d ' ')
+  assert_eq "two events logged" "2" "$line_count"
+
+  local first_event
+  first_event=$(head -1 "$log_file")
+  assert_contains "first event is rule_created" "$first_event" "rule_created"
+  assert_contains "first event has rule_id" "$first_event" "test-rule"
+  assert_contains "first event has category" "$first_event" "strategy"
+
+  teardown
+}
+
+# ============================================================
+# TEST: succession-resolve.sh — review-candidates.json created
+# ============================================================
+
+test_resolve_review_candidates() {
+  echo "=== Test: succession-resolve.sh review candidates ==="
+  setup
+
+  # Create a rule with high violation rate
+  cat > "$HOME/.succession/rules/bad-rule.md" << 'EOF'
+---
+id: bad-rule
+scope: global
+enforcement: advisory
+category: strategy
+type: correction
+source:
+  session: test
+  timestamp: 2026-01-01T00:00:00Z
+  evidence: "test"
+overrides: []
+enabled: true
+effectiveness:
+  times_followed: 3
+  times_violated: 8
+  times_overridden: 0
+  last_evaluated: 2026-04-01T00:00:00Z
+---
+
+A rule that is often violated.
+EOF
+
+  # Create a rule with high follow rate (advisory → promote candidate)
+  cat > "$HOME/.succession/rules/good-rule.md" << 'EOF'
+---
+id: good-rule
+scope: global
+enforcement: advisory
+category: relational-calibration
+type: preference
+source:
+  session: test
+  timestamp: 2026-01-01T00:00:00Z
+  evidence: "test"
+overrides: []
+enabled: true
+effectiveness:
+  times_followed: 18
+  times_violated: 2
+  times_overridden: 0
+  last_evaluated: 2026-04-01T00:00:00Z
+---
+
+A rule that is well followed.
+EOF
+
+  "$SCRIPTS_DIR/succession-resolve.sh" "$TEST_DIR/project"
+
+  assert_file_exists "review-candidates.json created" "$TEST_DIR/project/.succession/compiled/review-candidates.json"
+
+  local candidates
+  candidates=$(cat "$TEST_DIR/project/.succession/compiled/review-candidates.json")
+  assert_json_valid "review-candidates.json is valid JSON" "$candidates"
+  assert_contains "bad-rule flagged for review" "$candidates" "bad-rule"
+  assert_contains "good-rule flagged for promotion" "$candidates" "good-rule"
+
+  teardown
+}
+
+# ============================================================
+# TEST: pre-tool-use logs meta-cognition events
+# ============================================================
+
+test_pre_tool_use_meta_cognition() {
+  echo "=== Test: succession-pre-tool-use.sh meta-cognition logging ==="
+  setup
+
+  cat > "$TEST_DIR/project/.succession/compiled/tool-rules.json" << 'EOF'
+[
+  {"block_bash_pattern": "rm -rf /", "reason": "Dangerous command blocked", "source": "no-rm-rf"}
+]
+EOF
+
+  # Trigger a block
+  echo '{"cwd":"'"$TEST_DIR/project"'","tool_name":"Bash","tool_input":{"command":"rm -rf /"},"session_id":"test-meta"}' \
+    | "$SCRIPTS_DIR/succession-pre-tool-use.sh" 2>/dev/null || true
+
+  # Wait for background logging to complete
+  sleep 1
+
+  local log_file="$HOME/.succession/log/meta-cognition.jsonl"
+  if [ -f "$log_file" ]; then
+    local content
+    content=$(cat "$log_file")
+    assert_contains "violation logged" "$content" "rule_violated"
+    assert_contains "rule_id logged" "$content" "no-rm-rf"
+  else
+    assert_file_exists "meta-cognition log created on block" "$log_file"
+  fi
+
+  teardown
+}
+
+# ============================================================
 # RUN ALL TESTS
 # ============================================================
 
@@ -613,6 +816,11 @@ test_session_start_inject
 test_session_start_no_succession
 test_stop_correction_tier1
 test_stop_reinjection
+test_lib_parse_category_effectiveness
+test_lib_parse_defaults
+test_meta_cognition_logging
+test_resolve_review_candidates
+test_pre_tool_use_meta_cognition
 
 echo ""
 echo "=============================="

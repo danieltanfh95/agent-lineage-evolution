@@ -135,7 +135,41 @@ When the extraction threshold is reached:
   └── Re-run cascade resolution (update compiled artifacts)
 ```
 
-## 6. Cascade Resolution
+## 6. Four Knowledge Categories
+
+Each rule is classified into one of four knowledge categories, inspired by what memory systems miss:
+
+| Category | What it captures | Example |
+|----------|-----------------|---------|
+| **Strategy** | How the agent approaches problems — workflow patterns, methodologies | "Always plan before editing" |
+| **Failure inheritance** | Patterns of failure to avoid — anti-patterns, things that went wrong | "Never force-push without confirmation" |
+| **Relational calibration** | Communication style — tone, verbosity, explanation depth | "Prefer concise responses, don't summarize" |
+| **Meta-cognition** | Which heuristics proved reliable vs. which sounded plausible but failed | "Sonnet saves tokens over Haiku for semantic checks" |
+
+Rules without a `category:` field default to `strategy` for backwards compatibility.
+
+## 7. Effectiveness Tracking
+
+Every rule carries effectiveness counters in its frontmatter:
+
+```yaml
+effectiveness:
+  times_followed: 18
+  times_violated: 2
+  times_overridden: 0
+  last_evaluated: 2026-04-01T10:00:00Z
+```
+
+**How tracking works:**
+- **Mechanical rules**: PreToolUse hook logs `rule_followed` (all checks passed) or `rule_violated` (blocked) to `~/.succession/log/meta-cognition.jsonl`
+- **Correction matching**: When a user correction is detected, Sonnet checks if it matches an existing rule. If yes, `rule_violated` is logged against that rule instead of creating a duplicate.
+- **Counter materialization**: The Stop hook periodically reads the JSONL log and updates frontmatter counters in rule files.
+
+**Promotion and review:** During cascade resolution, rules are flagged:
+- Rules with >50% violation rate (10+ evaluations) → `review-candidates.json` with action `review`
+- Advisory rules with >80% follow rate (10+ evaluations) → `review-candidates.json` with action `promote` (advisory → semantic)
+
+## 8. Cascade Resolution
 
 Rules cascade from global to project level, with project rules taking precedence:
 
@@ -154,7 +188,7 @@ Rules cascade from global to project level, with project rules taking precedence
 
 **Why not Datalog?** The actual conflict scenarios are simple: two-level cascade with explicit overrides. Datalog would add ~500 LOC + a runtime dependency for the same result that ~30 lines of bash+jq achieves. The rule file format is designed to be Datalog-compatible if needed later.
 
-## 7. Retrospective Transcript Analysis
+## 9. Retrospective Transcript Analysis
 
 Succession can extract rules from past sessions post-hoc:
 
@@ -170,7 +204,7 @@ The batch mode runs the same extraction prompt used by the Stop hook but adds:
 
 Interactive mode starts a Claude session with the transcript loaded, letting users ask questions and selectively extract rules.
 
-## 8. Skill Extraction
+## 10. Skill Extraction
 
 A "skill" is a replayable bundle of behavioral patterns + domain knowledge:
 
@@ -186,7 +220,7 @@ A SKILL.md contains:
 
 Skills follow the same cascade as rules: project skills override global skills with the same name. They are injected via SessionStart alongside advisory rules.
 
-## 9. Comparison with Prior Systems
+## 11. Comparison with Prior Systems
 
 | | ALE (2025) | SOUL v2 (2026) | Succession (2026) |
 |---|---|---|---|
@@ -201,7 +235,7 @@ Skills follow the same cascade as rules: project skills override global skills w
 | **Retrospective analysis** | N/A | /soul review (recent) | Full transcript analysis + skill extraction |
 | **Cost per session** | N/A | ~$0.50-2.00 (Sonnet audit loop) | ~$0.05-0.20 (extraction only) |
 
-## 10. Limitations and Future Work
+## 12. Limitations and Future Work
 
 - **Prompt hooks can't return `additionalContext`**: Only command hooks can inject context back. This means the semantic PreToolUse and Stop audit hooks can only block/allow, not guide.
 - **Advisory rules still drift**: Periodic re-injection mitigates but doesn't eliminate drift. Very long sessions (>200k tokens) may still lose advisory rules.

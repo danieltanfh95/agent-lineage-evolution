@@ -165,6 +165,38 @@ resolve_rules() {
     done < <(echo "$semantic" | jq -c '.[]')
   } > "${compiled_dir}/advisory-summary.md"
 
+  # Step 7: Effectiveness analysis — flag rules for review or promotion
+  local review_candidates="[]"
+  while IFS= read -r rule_json; do
+    [ -n "$rule_json" ] || continue
+    local rid renforcement followed violated total rate
+    rid=$(echo "$rule_json" | jq -r '.id')
+    renforcement=$(echo "$rule_json" | jq -r '.enforcement')
+    followed=$(echo "$rule_json" | jq -r '.effectiveness.times_followed // 0')
+    violated=$(echo "$rule_json" | jq -r '.effectiveness.times_violated // 0')
+    total=$((followed + violated))
+
+    [ "$total" -ge 10 ] || continue
+
+    rate=$(echo "$followed $total" | awk '{printf "%.2f", $1/$2}')
+
+    # Rules with >50% violation rate → flag for review
+    if [ "$(echo "$violated $total" | awk '{print ($1/$2 > 0.5) ? "1" : "0"}')" = "1" ]; then
+      review_candidates=$(echo "$review_candidates" | jq \
+        --arg id "$rid" --arg action "review" --arg rate "$rate" --argjson total "$total" \
+        '. + [{id: $id, action: $action, follow_rate: $rate, evaluations: $total, reason: "High violation rate"}]')
+    fi
+
+    # Advisory rules with >80% follow rate → candidate for promotion to semantic
+    if [ "$renforcement" = "advisory" ] && [ "$(echo "$followed $total" | awk '{print ($1/$2 > 0.8) ? "1" : "0"}')" = "1" ]; then
+      review_candidates=$(echo "$review_candidates" | jq \
+        --arg id "$rid" --arg action "promote" --arg rate "$rate" --argjson total "$total" \
+        '. + [{id: $id, action: $action, follow_rate: $rate, evaluations: $total, reason: "High follow rate, promote advisory→semantic"}]')
+    fi
+  done < <(echo "$merged" | jq -c '.[]')
+
+  echo "$review_candidates" | jq '.' > "${compiled_dir}/review-candidates.json"
+
   # Log resolution
   local total_count mechanical_count semantic_count advisory_count
   total_count=$(echo "$merged" | jq 'length')

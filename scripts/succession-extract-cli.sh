@@ -186,6 +186,12 @@ For each pattern, determine enforcement tier:
 - \"semantic\" — requires LLM judgment to enforce
 - \"advisory\" — can only be reminded
 
+For each pattern, classify into one of four knowledge categories:
+- \"strategy\" — how the agent approaches problems (workflow patterns, methodologies)
+- \"failure-inheritance\" — patterns of failure to avoid (anti-patterns, things that went wrong)
+- \"relational-calibration\" — communication style adaptation (tone, verbosity, explanation depth)
+- \"meta-cognition\" — which heuristics proved reliable vs. which sounded plausible but failed
+
 EXISTING RULES (do not duplicate):
 ${EXISTING_RULES}
 
@@ -198,6 +204,7 @@ Output ONLY valid JSON (no markdown fencing):
     {
       \"id\": \"kebab-case-id\",
       \"enforcement\": \"mechanical|semantic|advisory\",
+      \"category\": \"strategy|failure-inheritance|relational-calibration|meta-cognition\",
       \"type\": \"correction|confirmation|preference\",
       \"scope\": \"global|project\",
       \"summary\": \"one-line rule statement\",
@@ -261,6 +268,7 @@ if [ "$APPLY" = true ] && [ "$RULE_COUNT" -gt 0 ]; then
 
     rid=$(echo "$rule_json" | jq -r '.id')
     renforcement=$(echo "$rule_json" | jq -r '.enforcement')
+    rcategory=$(echo "$rule_json" | jq -r '.category // "strategy"')
     rtype=$(echo "$rule_json" | jq -r '.type')
     rscope=$(echo "$rule_json" | jq -r '.scope // "project"')
     rsummary=$(echo "$rule_json" | jq -r '.summary')
@@ -284,6 +292,7 @@ if [ "$APPLY" = true ] && [ "$RULE_COUNT" -gt 0 ]; then
       echo "id: ${rid}"
       echo "scope: ${rscope}"
       echo "enforcement: ${renforcement}"
+      echo "category: ${rcategory}"
       echo "type: ${rtype}"
       echo "source:"
       echo "  session: retrospective"
@@ -291,6 +300,11 @@ if [ "$APPLY" = true ] && [ "$RULE_COUNT" -gt 0 ]; then
       echo "  evidence: \"${revidence}\""
       echo "overrides: []"
       echo "enabled: true"
+      echo "effectiveness:"
+      echo "  times_followed: 0"
+      echo "  times_violated: 0"
+      echo "  times_overridden: 0"
+      echo "  last_evaluated: null"
       echo "---"
       echo ""
       echo "${rsummary}"

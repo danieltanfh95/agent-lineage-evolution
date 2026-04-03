@@ -115,11 +115,61 @@ ${LATEST_USER_MSG}"
     --argjson turn "$TURN_COUNT" \
     --arg verdict "${TIER2_VERDICT:-UNKNOWN}"
 
-  # Tier 3: If confirmed correction, flag for extraction
+  # Tier 3: If confirmed correction, check for existing rule match before flagging
   if [ "$TIER2_VERDICT" = "YES" ]; then
     CORRECTION_DETECTED=true
-    touch "$CORRECTION_FLAG_FILE"
-    NOTIFICATION_MSG="Noticed a correction, will learn from it soon"
+
+    # Semantic violation matching: check if this correction matches an existing rule
+    EXISTING_RULE_IDS=""
+    EXISTING_RULE_SUMMARIES=""
+    for rf in "$RULES_DIR"/*.md "${SUCCESSION_GLOBAL_DIR}/rules"/*.md; do
+      [ -f "$rf" ] || continue
+      local_rid=$(basename "$rf" .md)
+      local_rsummary=$(parse_rule_body "$rf" | head -1)
+      EXISTING_RULE_IDS+="${local_rid} "
+      EXISTING_RULE_SUMMARIES+="- ${local_rid}: ${local_rsummary}
+"
+    done
+
+    MATCHED_RULE=""
+    if [ -n "$EXISTING_RULE_SUMMARIES" ]; then
+      MATCH_PROMPT="Given this user correction: '${LATEST_USER_MSG}'
+And these existing rules:
+${EXISTING_RULE_SUMMARIES}
+Does this correction indicate a violation of an existing rule? If yes, return ONLY the rule ID. If no, return ONLY the word null."
+
+      MATCH_RAW=$(echo "$MATCH_PROMPT" | timeout 15 claude -p --model "$CORRECTION_MODEL_ID" --output-format json 2>/dev/null) || true
+      MATCH_RESULT=$(echo "$MATCH_RAW" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
+      MATCH_RESULT=$(echo "$MATCH_RESULT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
+      if [ "$MATCH_RESULT" != "null" ] && [ -n "$MATCH_RESULT" ]; then
+        # Check if the matched ID is actually a valid rule
+        for rf in "$RULES_DIR"/*.md "${SUCCESSION_GLOBAL_DIR}/rules"/*.md; do
+          [ -f "$rf" ] || continue
+          if [ "$(basename "$rf" .md)" = "$MATCH_RESULT" ]; then
+            MATCHED_RULE="$MATCH_RESULT"
+            break
+          fi
+        done
+      fi
+    fi
+
+    if [ -n "$MATCHED_RULE" ]; then
+      # Existing rule was violated — log it, don't create a new rule
+      log_meta_cognition_event "rule_violated" \
+        --arg rule_id "$MATCHED_RULE" \
+        --arg context "$LATEST_USER_MSG" \
+        --arg detected_by "correction-matching"
+
+      log_meta_cognition_event "correction_matched" \
+        --arg rule_id "$MATCHED_RULE" \
+        --arg user_msg "$(echo "$LATEST_USER_MSG" | head -c 200)"
+
+      NOTIFICATION_MSG="Matched correction to existing rule: ${MATCHED_RULE}"
+    else
+      touch "$CORRECTION_FLAG_FILE"
+      NOTIFICATION_MSG="Noticed a correction, will learn from it soon"
+    fi
   fi
 fi
 
@@ -170,7 +220,7 @@ if [ "$TRANSCRIPT_GROWTH" -ge "$EFFECTIVE_THRESHOLD" ]; then
     done
 
     # Build extraction prompt
-    EXTRACT_PROMPT="You are a behavioral pattern extraction system. Read this conversation transcript and identify patterns in three categories:
+    EXTRACT_PROMPT="You are a behavioral pattern extraction system. Read this conversation transcript and identify patterns in three types:
 
 1. CORRECTIONS — the user told the agent to stop doing something or do something differently
 2. CONFIRMATIONS — the user validated a non-obvious choice the agent made
@@ -180,6 +230,12 @@ For each pattern, determine the enforcement tier:
 - \"mechanical\" — can be enforced by blocking a specific tool or bash pattern (e.g., \"never force-push\" → block 'git push --force')
 - \"semantic\" — requires LLM judgment to enforce (e.g., \"use Edit instead of sed for source files\")
 - \"advisory\" — can only be reminded, not enforced (e.g., \"prefer concise responses\")
+
+For each pattern, classify into one of four knowledge categories:
+- \"strategy\" — how the agent approaches problems (workflow patterns, methodologies)
+- \"failure-inheritance\" — patterns of failure to avoid (anti-patterns, things that went wrong)
+- \"relational-calibration\" — communication style adaptation (tone, verbosity, explanation depth)
+- \"meta-cognition\" — which heuristics proved reliable vs. which sounded plausible but failed
 
 EXISTING RULES (do not duplicate):
 ${EXISTING_RULES}
@@ -193,6 +249,7 @@ Output ONLY valid JSON (no markdown fencing):
     {
       \"id\": \"kebab-case-id (e.g., no-force-push, prefer-edit-over-sed)\",
       \"enforcement\": \"mechanical|semantic|advisory\",
+      \"category\": \"strategy|failure-inheritance|relational-calibration|meta-cognition\",
       \"type\": \"correction|confirmation|preference\",
       \"scope\": \"global|project\",
       \"summary\": \"one-line rule statement\",
@@ -234,6 +291,7 @@ Rules:
 
           local_id=$(echo "$rule_json" | jq -r '.id')
           local_enforcement=$(echo "$rule_json" | jq -r '.enforcement')
+          local_category=$(echo "$rule_json" | jq -r '.category // "strategy"')
           local_type=$(echo "$rule_json" | jq -r '.type')
           local_scope=$(echo "$rule_json" | jq -r '.scope // "project"')
           local_summary=$(echo "$rule_json" | jq -r '.summary')
@@ -260,6 +318,7 @@ Rules:
             echo "id: ${local_id}"
             echo "scope: ${local_scope}"
             echo "enforcement: ${local_enforcement}"
+            echo "category: ${local_category}"
             echo "type: ${local_type}"
             echo "source:"
             echo "  session: ${SESSION_ID}"
@@ -267,6 +326,11 @@ Rules:
             echo "  evidence: \"${local_evidence}\""
             echo "overrides: []"
             echo "enabled: true"
+            echo "effectiveness:"
+            echo "  times_followed: 0"
+            echo "  times_violated: 0"
+            echo "  times_overridden: 0"
+            echo "  last_evaluated: null"
             echo "---"
             echo ""
             echo "${local_summary}"
@@ -285,6 +349,12 @@ Rules:
           } > "$RULE_FILE"
 
           RULES_WRITTEN=$((RULES_WRITTEN + 1))
+
+          # Log rule creation to meta-cognition audit trail
+          log_meta_cognition_event "rule_created" \
+            --arg rule_id "$local_id" \
+            --arg category "$local_category" \
+            --arg source "extraction"
         done < <(echo "$EXTRACT_RESULT" | jq -c '.rules[]')
 
         if [ "$RULES_WRITTEN" -gt 0 ]; then
@@ -323,6 +393,14 @@ if [ $((TURN_COUNT % REINJECTION_INTERVAL)) -eq 0 ]; then
   if [ -f "$ADVISORY_FILE" ] && [ -s "$ADVISORY_FILE" ]; then
     ADDITIONAL_CONTEXT=$(cat "$ADVISORY_FILE")
   fi
+fi
+
+# ============================================================
+# PHASE 4: EFFECTIVENESS COUNTER UPDATE (every N turns)
+# ============================================================
+
+if [ $((TURN_COUNT % REINJECTION_INTERVAL)) -eq 0 ]; then
+  update_effectiveness_counters "$RULES_DIR" "${SUCCESSION_GLOBAL_DIR}/rules" 2>/dev/null || true
 fi
 
 # ============================================================

@@ -61,9 +61,17 @@ Create a new rule file from a one-line description. Ask the user:
 3. For mechanical: what enforcement directives?
 Then write the rule file with proper frontmatter.
 
+### /succession effectiveness
+Show effectiveness tracking data for all rules:
+1. Read `.succession/compiled/review-candidates.json` for promotion/review candidates
+2. Read rule files and display effectiveness counters (times_followed, times_violated, times_overridden)
+3. Group rules by category (strategy, failure-inheritance, relational-calibration, meta-cognition)
+4. Show which categories are most/least effective
+5. Flag rules with high violation rates for review
+
 ### /succession resolve
 Manually re-run cascade resolution:
 ```bash
 bash "$CLAUDE_PROJECT_DIR/scripts/succession-resolve.sh" "$CLAUDE_PROJECT_DIR"
 ```
-Then show the compiled artifacts.
+Then show the compiled artifacts including review-candidates.json.
