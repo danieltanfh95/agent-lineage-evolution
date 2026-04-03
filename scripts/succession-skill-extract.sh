@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Imprint — Skill Extraction CLI
+# Succession — Skill Extraction CLI
 # Extracts replayable skill bundles (SKILL.md) from past Claude Code transcripts.
 # A "skill" is a behavioral pattern + domain knowledge for a specific task type.
 #
 # Usage:
-#   imprint-skill-extract.sh <transcript.jsonl>              # Extract skill
-#   imprint-skill-extract.sh --name "deploy-flow" <file>     # Name the skill
-#   imprint-skill-extract.sh --interactive <file>             # Explore first
-#   imprint-skill-extract.sh --apply <file>                   # Write SKILL.md
-#   imprint-skill-extract.sh --scope global <file>            # Save to global skills
+#   succession-skill-extract.sh <transcript.jsonl>              # Extract skill
+#   succession-skill-extract.sh --name "deploy-flow" <file>     # Name the skill
+#   succession-skill-extract.sh --interactive <file>             # Explore first
+#   succession-skill-extract.sh --apply <file>                   # Write SKILL.md
+#   succession-skill-extract.sh --scope global <file>            # Save to global skills
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --help|-h)
-      echo "Usage: imprint-skill-extract.sh [options] [transcript.jsonl]"
+      echo "Usage: succession-skill-extract.sh [options] [transcript.jsonl]"
       echo ""
       echo "Options:"
       echo "  --name <name>       Name for the extracted skill (auto-generated if omitted)"
@@ -60,7 +60,7 @@ done
 
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   echo "Error: No transcript specified or file not found" >&2
-  echo "Usage: imprint-skill-extract.sh [--last | <path>]" >&2
+  echo "Usage: succession-skill-extract.sh [--last | <path>]" >&2
   exit 1
 fi
 
@@ -253,9 +253,9 @@ SKILL_EOF
 # --- Apply ---
 if [ "$APPLY" = true ]; then
   if [ "$SCOPE" = "global" ]; then
-    TARGET_DIR="${HOME}/.imprint/skills/${FINAL_NAME}"
+    TARGET_DIR="${HOME}/.succession/skills/${FINAL_NAME}"
   else
-    TARGET_DIR="${PWD}/.imprint/skills/${FINAL_NAME}"
+    TARGET_DIR="${PWD}/.succession/skills/${FINAL_NAME}"
   fi
 
   mkdir -p "$TARGET_DIR"
@@ -270,7 +270,7 @@ if [ "$APPLY" = true ]; then
       renforcement=$(echo "$rule_json" | jq -r '.enforcement')
       if [ "$renforcement" = "mechanical" ]; then
         echo "  Note: Mechanical rules from skills should be added as separate rule files"
-        echo "  Use 'imprint add' to create them"
+        echo "  Use 'succession add' to create them"
         break
       fi
     done < <(echo "$EXTRACT_RESULT" | jq -c '.rules[]')

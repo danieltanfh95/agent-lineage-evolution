@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Imprint — Stop Hook
+# Succession — Stop Hook
 # Three phases:
 #   1. Three-tier correction detection (free → Sonnet micro-prompt → flag)
 #   2. Pattern extraction → individual rule files
@@ -19,11 +19,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 # Directories
-IMPRINT_PROJECT_DIR="${CWD}/.imprint"
-COMPILED_DIR="${IMPRINT_PROJECT_DIR}/compiled"
-RULES_DIR="${IMPRINT_PROJECT_DIR}/rules"
-LOG_DIR="${IMPRINT_PROJECT_DIR}/log"
-CONFIG_FILE="${IMPRINT_GLOBAL_DIR}/config.json"
+SUCCESSION_PROJECT_DIR="${CWD}/.succession"
+COMPILED_DIR="${SUCCESSION_PROJECT_DIR}/compiled"
+RULES_DIR="${SUCCESSION_PROJECT_DIR}/rules"
+LOG_DIR="${SUCCESSION_PROJECT_DIR}/log"
+CONFIG_FILE="${SUCCESSION_GLOBAL_DIR}/config.json"
 
 # Config defaults
 EXTRACTION_MODEL="sonnet"
@@ -44,9 +44,9 @@ EXTRACTION_MODEL_ID=$(map_model_id "$EXTRACTION_MODEL")
 CORRECTION_MODEL_ID=$(map_model_id "$CORRECTION_MODEL")
 
 # State files
-TURN_COUNT_FILE="/tmp/.imprint-turns-${SESSION_ID}"
-EXTRACT_OFFSET_FILE="/tmp/.imprint-extract-offset-${SESSION_ID}"
-CORRECTION_FLAG_FILE="/tmp/.imprint-correction-flag-${SESSION_ID}"
+TURN_COUNT_FILE="/tmp/.succession-turns-${SESSION_ID}"
+EXTRACT_OFFSET_FILE="/tmp/.succession-extract-offset-${SESSION_ID}"
+CORRECTION_FLAG_FILE="/tmp/.succession-correction-flag-${SESSION_ID}"
 
 # Initialize turn counter
 if [ -f "$TURN_COUNT_FILE" ]; then
@@ -97,7 +97,7 @@ fi
 if [ "$TIER1_MATCH" = "true" ]; then
   LATEST_USER_MSG=$(echo "$RECENT_USER_MSGS" | tail -1 | head -c 500)
 
-  log_imprint_event "correction_tier1" \
+  log_succession_event "correction_tier1" \
     --argjson turn "$TURN_COUNT" \
     --arg user_msg_snippet "$(echo "$LATEST_USER_MSG" | head -c 100)"
 
@@ -111,7 +111,7 @@ ${LATEST_USER_MSG}"
   TIER2_RESULT=$(echo "$TIER2_RAW" | jq -r 'if type == "array" then .[-1].result // empty else .result // . end' 2>/dev/null) || true
   TIER2_VERDICT=$(echo "$TIER2_RESULT" | tr '[:lower:]' '[:upper:]' | grep -o 'YES\|NO' | head -1)
 
-  log_imprint_event "correction_tier2" \
+  log_succession_event "correction_tier2" \
     --argjson turn "$TURN_COUNT" \
     --arg verdict "${TIER2_VERDICT:-UNKNOWN}"
 
@@ -163,7 +163,7 @@ if [ "$TRANSCRIPT_GROWTH" -ge "$EFFECTIVE_THRESHOLD" ]; then
   else
     # Load existing rules for deduplication context
     EXISTING_RULES=""
-    for rf in "$RULES_DIR"/*.md "${IMPRINT_GLOBAL_DIR}/rules"/*.md; do
+    for rf in "$RULES_DIR"/*.md "${SUCCESSION_GLOBAL_DIR}/rules"/*.md; do
       [ -f "$rf" ] || continue
       EXISTING_RULES+="- $(basename "$rf" .md): $(head -20 "$rf" | grep -v '^---' | grep -v '^$' | head -2 | tr '\n' ' ')
 "
@@ -219,7 +219,7 @@ Rules:
     EXTRACT_RESULT=$(echo "$EXTRACT_RESULT" | sed '/^```/d')
 
     if ! echo "$EXTRACT_RESULT" | jq empty 2>/dev/null; then
-      log_imprint_event "extraction_failed" \
+      log_succession_event "extraction_failed" \
         --argjson turn "$TURN_COUNT" \
         --arg error "Invalid JSON from extraction"
       echo "$TRANSCRIPT_SIZE" > "$EXTRACT_OFFSET_FILE"
@@ -241,7 +241,7 @@ Rules:
 
           # Determine target directory based on scope
           if [ "$local_scope" = "global" ]; then
-            TARGET_DIR="${IMPRINT_GLOBAL_DIR}/rules"
+            TARGET_DIR="${SUCCESSION_GLOBAL_DIR}/rules"
           else
             TARGET_DIR="$RULES_DIR"
           fi
@@ -291,9 +291,9 @@ Rules:
           NOTIFICATION_MSG="${NOTIFICATION_MSG:+${NOTIFICATION_MSG}; }Extracted ${RULES_WRITTEN} new rule(s)"
 
           # Re-compile rules after extraction
-          "${SCRIPT_DIR}/imprint-resolve.sh" "$CWD" 2>/dev/null || true
+          "${SCRIPT_DIR}/succession-resolve.sh" "$CWD" 2>/dev/null || true
 
-          log_imprint_event "extraction" \
+          log_succession_event "extraction" \
             --argjson turn "$TURN_COUNT" \
             --argjson rules_written "$RULES_WRITTEN" \
             --argjson total_found "$RULE_COUNT" \
@@ -336,7 +336,7 @@ if [ -n "$ADDITIONAL_CONTEXT" ] || [ -n "$NOTIFICATION_MSG" ]; then
     OUTPUT=$(echo "$OUTPUT" | jq --arg ctx "$ADDITIONAL_CONTEXT" '.hookSpecificOutput.additionalContext = $ctx')
   fi
   if [ -n "$NOTIFICATION_MSG" ]; then
-    OUTPUT=$(echo "$OUTPUT" | jq --arg msg "$NOTIFICATION_MSG" '.hookSpecificOutput.additionalContext = ((.hookSpecificOutput.additionalContext // "") + "\n\n[Imprint] " + $msg)')
+    OUTPUT=$(echo "$OUTPUT" | jq --arg msg "$NOTIFICATION_MSG" '.hookSpecificOutput.additionalContext = ((.hookSpecificOutput.additionalContext // "") + "\n\n[Succession] " + $msg)')
   fi
   echo "$OUTPUT"
 else

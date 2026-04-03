@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Imprint — One-time Setup
+# Succession — One-time Setup
 # Creates directory structure and registers hooks in Claude Code settings.
-# Usage: ./imprint-init.sh [--project-only]
+# Usage: ./succession-init.sh [--project-only]
 #
-# --project-only: Only set up .imprint/ in current directory, skip global install
+# --project-only: Only set up .succession/ in current directory, skip global install
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GLOBAL_DIR="${HOME}/.imprint"
+GLOBAL_DIR="${HOME}/.succession"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
 PROJECT_DIR="${PWD}"
 
-echo "=== Imprint Setup ==="
+echo "=== Succession Setup ==="
 echo ""
 
 # --- Parse args ---
@@ -34,15 +34,15 @@ if [ "$PROJECT_ONLY" = false ]; then
   # Copy scripts to global location
   mkdir -p "${GLOBAL_DIR}/scripts"
   cp "${SCRIPT_DIR}/lib.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/imprint-resolve.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/imprint-pre-tool-use.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/imprint-stop.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/imprint-session-start.sh" "${GLOBAL_DIR}/scripts/"
+  cp "${SCRIPT_DIR}/succession-resolve.sh" "${GLOBAL_DIR}/scripts/"
+  cp "${SCRIPT_DIR}/succession-pre-tool-use.sh" "${GLOBAL_DIR}/scripts/"
+  cp "${SCRIPT_DIR}/succession-stop.sh" "${GLOBAL_DIR}/scripts/"
+  cp "${SCRIPT_DIR}/succession-session-start.sh" "${GLOBAL_DIR}/scripts/"
   chmod +x "${GLOBAL_DIR}/scripts"/*.sh
 
-  echo "  ~/.imprint/rules/        — global rules"
-  echo "  ~/.imprint/skills/       — global skills"
-  echo "  ~/.imprint/scripts/      — hook scripts"
+  echo "  ~/.succession/rules/        — global rules"
+  echo "  ~/.succession/skills/       — global skills"
+  echo "  ~/.succession/scripts/      — hook scripts"
   echo ""
 
   # Default config
@@ -57,29 +57,29 @@ if [ "$PROJECT_ONLY" = false ]; then
   "debug": false
 }
 EOF
-    echo "Created default config at ~/.imprint/config.json"
+    echo "Created default config at ~/.succession/config.json"
   fi
 fi
 
 # --- Step 2: Create project directory structure ---
 echo "Creating project directories..."
-mkdir -p "${PROJECT_DIR}/.imprint/rules"
-mkdir -p "${PROJECT_DIR}/.imprint/skills"
-mkdir -p "${PROJECT_DIR}/.imprint/compiled"
-mkdir -p "${PROJECT_DIR}/.imprint/log"
+mkdir -p "${PROJECT_DIR}/.succession/rules"
+mkdir -p "${PROJECT_DIR}/.succession/skills"
+mkdir -p "${PROJECT_DIR}/.succession/compiled"
+mkdir -p "${PROJECT_DIR}/.succession/log"
 
 # Add compiled/ and log/ to gitignore
-GITIGNORE="${PROJECT_DIR}/.imprint/.gitignore"
+GITIGNORE="${PROJECT_DIR}/.succession/.gitignore"
 if [ ! -f "$GITIGNORE" ]; then
   cat > "$GITIGNORE" << 'EOF'
 compiled/
 log/
 EOF
-  echo "Created .imprint/.gitignore"
+  echo "Created .succession/.gitignore"
 fi
 
-echo "  .imprint/rules/          — project rules"
-echo "  .imprint/skills/         — project skills"
+echo "  .succession/rules/          — project rules"
+echo "  .succession/skills/         — project skills"
 echo ""
 
 # --- Step 3: Register hooks in Claude Code settings ---
@@ -90,9 +90,9 @@ if [ "$PROJECT_ONLY" = false ]; then
 
   # Build the hooks JSON
   HOOKS_JSON=$(jq -n \
-    --arg session_start "${HOOKS_SCRIPT_DIR}/imprint-session-start.sh" \
-    --arg pre_tool_use "${HOOKS_SCRIPT_DIR}/imprint-pre-tool-use.sh" \
-    --arg stop "${HOOKS_SCRIPT_DIR}/imprint-stop.sh" \
+    --arg session_start "${HOOKS_SCRIPT_DIR}/succession-session-start.sh" \
+    --arg pre_tool_use "${HOOKS_SCRIPT_DIR}/succession-pre-tool-use.sh" \
+    --arg stop "${HOOKS_SCRIPT_DIR}/succession-stop.sh" \
     '{
       "SessionStart": [
         {
@@ -141,19 +141,19 @@ if [ "$PROJECT_ONLY" = false ]; then
 
   echo ""
   echo "Registered hooks:"
-  echo "  SessionStart → imprint-session-start.sh (cascade resolve + inject)"
-  echo "  PreToolUse   → imprint-pre-tool-use.sh  (mechanical enforcement)"
-  echo "  Stop         → imprint-stop.sh          (correction detection + extraction + re-injection)"
+  echo "  SessionStart → succession-session-start.sh (cascade resolve + inject)"
+  echo "  PreToolUse   → succession-pre-tool-use.sh  (mechanical enforcement)"
+  echo "  Stop         → succession-stop.sh          (correction detection + extraction + re-injection)"
 fi
 
-# --- Step 4: Install skill for /imprint commands ---
+# --- Step 4: Install skill for /succession commands ---
 if [ "$PROJECT_ONLY" = false ]; then
-  SKILL_DIR="${HOME}/.claude/skills/imprint"
+  SKILL_DIR="${HOME}/.claude/skills/succession"
   mkdir -p "$SKILL_DIR"
   if [ -f "${SCRIPT_DIR}/SKILL.md" ]; then
     cp "${SCRIPT_DIR}/SKILL.md" "${SKILL_DIR}/SKILL.md"
     echo ""
-    echo "Installed /imprint skill at ${SKILL_DIR}/"
+    echo "Installed /succession skill at ${SKILL_DIR}/"
   fi
 fi
 
@@ -161,8 +161,8 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Add global rules:   echo '...' > ~/.imprint/rules/my-rule.md"
-echo "  2. Add project rules:  echo '...' > .imprint/rules/my-rule.md"
+echo "  1. Add global rules:   echo '...' > ~/.succession/rules/my-rule.md"
+echo "  2. Add project rules:  echo '...' > .succession/rules/my-rule.md"
 echo "  3. Start a Claude Code session — rules will be enforced automatically"
-echo "  4. Use /imprint show to see active rules"
-echo "  5. Use /imprint extract to analyze past transcripts"
+echo "  4. Use /succession show to see active rules"
+echo "  5. Use /succession extract to analyze past transcripts"

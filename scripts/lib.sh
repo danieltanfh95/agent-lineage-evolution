@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Imprint — Shared Hook Library
+# Succession — Shared Hook Library
 # Sourced by all hook scripts.
-# Provides: map_model_id(), log_imprint_event(), parse_rule_frontmatter()
+# Provides: map_model_id(), log_succession_event(), parse_rule_frontmatter()
 
-IMPRINT_GLOBAL_DIR="${HOME}/.imprint"
-IMPRINT_PROJECT_DIR=""  # Set by caller from CWD
+SUCCESSION_GLOBAL_DIR="${HOME}/.succession"
+SUCCESSION_PROJECT_DIR=""  # Set by caller from CWD
 
 # Map friendly model names to Claude model IDs
 map_model_id() {
@@ -17,13 +17,13 @@ map_model_id() {
 }
 
 # Log a structured event to the activity log.
-# Usage: log_imprint_event "event_name" [jq --arg flags...]
+# Usage: log_succession_event "event_name" [jq --arg flags...]
 # Requires $LOG_DIR and $SESSION_ID to be set by the caller.
-log_imprint_event() {
+log_succession_event() {
   local event="$1"
   shift
 
-  local log_dir="${LOG_DIR:-${IMPRINT_GLOBAL_DIR}/log}"
+  local log_dir="${LOG_DIR:-${SUCCESSION_GLOBAL_DIR}/log}"
   mkdir -p "$log_dir"
   jq -cn \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -31,12 +31,12 @@ log_imprint_event() {
     --arg event "$event" \
     "$@" \
     '{timestamp: $ts, session: $session, event: $event} + $ARGS.named' \
-    >> "${log_dir}/imprint-activity.jsonl" 2>/dev/null || true
+    >> "${log_dir}/succession-activity.jsonl" 2>/dev/null || true
 }
 
 # Rotate log file if it exceeds 1MB.
 rotate_log_if_needed() {
-  local log_file="${LOG_DIR:-${IMPRINT_GLOBAL_DIR}/log}/imprint-activity.jsonl"
+  local log_file="${LOG_DIR:-${SUCCESSION_GLOBAL_DIR}/log}/succession-activity.jsonl"
   if [ -f "$log_file" ]; then
     local size
     size=$(wc -c < "$log_file" | tr -d ' ')

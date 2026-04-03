@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Imprint — SessionStart Hook
+# Succession — SessionStart Hook
 # Compiles rules via cascade resolution and injects advisory rules + skills as additionalContext.
 # Input: JSON on stdin with session_id, cwd, source, etc.
 # Output: JSON with hookSpecificOutput.additionalContext
@@ -13,21 +13,21 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
-LOG_DIR="${CWD}/.imprint/log"
-COMPILED_DIR="${CWD}/.imprint/compiled"
+LOG_DIR="${CWD}/.succession/log"
+COMPILED_DIR="${CWD}/.succession/compiled"
 
-# Bail if no .imprint directory in this repo AND no global rules
-if [ ! -d "${CWD}/.imprint" ] && [ ! -d "${IMPRINT_GLOBAL_DIR}/rules" ]; then
+# Bail if no .succession directory in this repo AND no global rules
+if [ ! -d "${CWD}/.succession" ] && [ ! -d "${SUCCESSION_GLOBAL_DIR}/rules" ]; then
   exit 0
 fi
 
-mkdir -p "${CWD}/.imprint/rules" "$COMPILED_DIR" "$LOG_DIR"
+mkdir -p "${CWD}/.succession/rules" "$COMPILED_DIR" "$LOG_DIR"
 
 # --- Log rotation ---
 rotate_log_if_needed
 
 # --- Phase 1: Compile rules (cascade resolution) ---
-"${SCRIPT_DIR}/imprint-resolve.sh" "$CWD" 2>/dev/null || true
+"${SCRIPT_DIR}/succession-resolve.sh" "$CWD" 2>/dev/null || true
 
 # --- Phase 2: Assemble additionalContext ---
 assembled=""
@@ -36,7 +36,7 @@ assembled=""
 ADVISORY_FILE="${COMPILED_DIR}/advisory-summary.md"
 if [ -f "$ADVISORY_FILE" ] && [ -s "$ADVISORY_FILE" ]; then
   assembled+="
---- IMPRINT: ACTIVE RULES ---
+--- SUCCESSION: ACTIVE RULES ---
 $(cat "$ADVISORY_FILE")
 "
 fi
@@ -45,7 +45,7 @@ fi
 SEMANTIC_FILE="${COMPILED_DIR}/semantic-rules.md"
 if [ -f "$SEMANTIC_FILE" ] && [ -s "$SEMANTIC_FILE" ]; then
   assembled+="
---- IMPRINT: SEMANTIC RULES (enforced on tool calls) ---
+--- SUCCESSION: SEMANTIC RULES (enforced on tool calls) ---
 $(cat "$SEMANTIC_FILE")
 "
 fi
@@ -80,14 +80,14 @@ load_skills_from() {
 }
 
 # Project skills first (higher priority)
-load_skills_from "${CWD}/.imprint/skills" "project"
+load_skills_from "${CWD}/.succession/skills" "project"
 # Global skills second (lower priority)
-load_skills_from "${IMPRINT_GLOBAL_DIR}/skills" "global"
+load_skills_from "${SUCCESSION_GLOBAL_DIR}/skills" "global"
 
 # --- Phase 4: Conflict resolution note ---
 assembled+="
---- IMPRINT: RULE RESOLUTION ---
-Rules are resolved by cascade: project-level (.imprint/rules/) overrides global (~/.imprint/rules/).
+--- SUCCESSION: RULE RESOLUTION ---
+Rules are resolved by cascade: project-level (.succession/rules/) overrides global (~/.succession/rules/).
 Rules with explicit 'overrides' fields cancel the referenced rules.
 Higher priority numbers win among rules at the same scope level."
 
@@ -97,7 +97,7 @@ if [ -f "${COMPILED_DIR}/tool-rules.json" ]; then
   RULE_COUNT=$(jq 'length' "${COMPILED_DIR}/tool-rules.json" 2>/dev/null) || RULE_COUNT=0
 fi
 
-log_imprint_event "session_start" \
+log_succession_event "session_start" \
   --argjson mechanical_rules "$RULE_COUNT" \
   --arg skills_loaded "$LOADED_SKILLS"
 

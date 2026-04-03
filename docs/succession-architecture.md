@@ -1,4 +1,4 @@
-# Imprint v2 — Technical Architecture
+# Succession — Technical Architecture
 
 ## 1. Problem Statement
 
@@ -42,10 +42,10 @@ Previous approaches (CLAUDE.md files, AGENTS.md, system prompts) address cross-s
 ┌───────────────────────────────────────────────────────┐
 │                    Rule Storage                        │
 │                                                        │
-│  ~/.imprint/rules/    ← global (all projects)          │
-│  .imprint/rules/      ← project (overrides global)     │
+│  ~/.succession/rules/    ← global (all projects)          │
+│  .succession/rules/      ← project (overrides global)     │
 │                                                        │
-│  .imprint/compiled/   ← generated artifacts:           │
+│  .succession/compiled/   ← generated artifacts:           │
 │    tool-rules.json      (mechanical enforcement)       │
 │    semantic-rules.md    (semantic prompt hook)          │
 │    advisory-summary.md  (re-injection content)         │
@@ -140,8 +140,8 @@ When the extraction threshold is reached:
 Rules cascade from global to project level, with project rules taking precedence:
 
 ```
-1. Load ~/.imprint/rules/*.md (global scope)
-2. Load .imprint/rules/*.md (project scope)
+1. Load ~/.succession/rules/*.md (global scope)
+2. Load .succession/rules/*.md (project scope)
 3. For rules with the same `id`: project wins
 4. For rules with explicit `overrides: [id]`: remove overridden rules
 5. Filter to enabled: true
@@ -156,12 +156,12 @@ Rules cascade from global to project level, with project rules taking precedence
 
 ## 7. Retrospective Transcript Analysis
 
-Imprint can extract rules from past sessions post-hoc:
+Succession can extract rules from past sessions post-hoc:
 
 ```bash
-imprint-extract-cli.sh --last                    # Most recent session
-imprint-extract-cli.sh --from-turn 42 <file>     # "What went wrong after turn 42?"
-imprint-extract-cli.sh --interactive <file>       # Explore transcript interactively
+succession-extract-cli.sh --last                    # Most recent session
+succession-extract-cli.sh --from-turn 42 <file>     # "What went wrong after turn 42?"
+succession-extract-cli.sh --interactive <file>       # Explore transcript interactively
 ```
 
 The batch mode runs the same extraction prompt used by the Stop hook but adds:
@@ -175,7 +175,7 @@ Interactive mode starts a Claude session with the transcript loaded, letting use
 A "skill" is a replayable bundle of behavioral patterns + domain knowledge:
 
 ```bash
-imprint-skill-extract.sh --last --apply --name "deploy-flow"
+succession-skill-extract.sh --last --apply --name "deploy-flow"
 ```
 
 A SKILL.md contains:
@@ -188,7 +188,7 @@ Skills follow the same cascade as rules: project skills override global skills w
 
 ## 9. Comparison with Prior Systems
 
-| | ALE (2025) | SOUL v2 (2026) | Imprint v2 (2026) |
+| | ALE (2025) | SOUL v2 (2026) | Succession (2026) |
 |---|---|---|---|
 | **Core idea** | Episodic succession | Continuous governance | Behavioral extraction |
 | **Identity storage** | Handoff package | SOUL.md (monolithic) | None (rules only) |
@@ -207,4 +207,4 @@ Skills follow the same cascade as rules: project skills override global skills w
 - **Advisory rules still drift**: Periodic re-injection mitigates but doesn't eliminate drift. Very long sessions (>200k tokens) may still lose advisory rules.
 - **No cross-rule inference**: Rules are independent. "If React then TypeScript" + "If TypeScript then strict mode" does not produce "If React then strict mode." A Datalog resolver could add this.
 - **Claude Code only**: Hooks are specific to Claude Code's hook system. Supporting other agents requires adapting the hook interface.
-- **Extraction quality depends on Sonnet**: If the extraction model misclassifies a rule's enforcement tier, the wrong enforcement mechanism is used. User review (`/imprint review`) mitigates this.
+- **Extraction quality depends on Sonnet**: If the extraction model misclassifies a rule's enforcement tier, the wrong enforcement mechanism is used. User review (`/succession review`) mitigates this.

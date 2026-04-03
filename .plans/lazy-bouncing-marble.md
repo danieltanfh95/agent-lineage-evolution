@@ -1,247 +1,289 @@
-# Imprint v2 — Behavioral Pattern Extraction with Cascading Rules
+# Succession — Rename + Knowledge Categories + Babashka Migration
 
 ## Context
 
-**Problem:** Imprint v1 (stashed as `imprint-v1`) simplified SOUL down to a single Stop hook writing rules to CLAUDE.md/AGENTS.md. The assumption that these files stay reliably in context was wrong — there's clear performance regression in longer sessions due to instruction drift at ~150k tokens.
+Imprint v2 was just built and committed (ec482d0). Three improvements identified from a side conversation and the succession research brief:
 
-**Goal:** Keep the core pivot to behavioral pattern extraction, but fix enforcement reliability and redesign rule storage as individual files with CSS-like cascading. Also add retrospective transcript analysis for inspecting degraded sessions.
-
-**Key insight:** The only enforcement mechanism immune to instruction drift is **PreToolUse command hooks** — they run mechanically before every tool call, outside the agent's context window. Advisory rules need periodic **re-injection via `additionalContext`** (only command hooks support this). All enforcement logic lives in our scripts, not in Claude Code's `if`/`matcher` syntax (which is just glob filtering, too limited to build on).
+1. **Rename Imprint → Succession** — closer to the ALE framework's core concept of generational behavioral inheritance
+2. **Four knowledge categories** — the research brief (succession-research-brief-v2.md) identifies strategy, failure inheritance, relational calibration, and meta-cognition as distinct knowledge types that memory systems miss. These should become first-class rule categories with effectiveness tracking.
+3. **Migrate to Babashka** — bash+jq is fragile for YAML parsing and JSON manipulation. Babashka gives us Clojure (proper data structures) + Datascript (in-process Datalog for rule resolution and effectiveness tracking) + ~10ms startup time.
 
 ---
 
-## Architecture
+## Phased Approach
 
-### Rule Storage: One File Per Rule
+Do rename + categories in bash first (testable immediately), then migrate to babashka with the final schema already defined. The bash version becomes the reference implementation and test oracle for the bb rewrite.
 
-Each rule is an individual markdown file with YAML frontmatter:
+---
 
-```
-~/.imprint/rules/              # Global rules (all projects)
-  no-force-push.md
-  read-before-edit.md
-.imprint/rules/                # Project rules (override global)
-  allow-agents.md
-  use-knex.md
-.imprint/compiled/             # Generated artifacts (gitignored)
-  tool-rules.json              # Compiled mechanical rules for PreToolUse command hook
-  semantic-rules.md            # Compiled semantic rules for PreToolUse prompt hook
-  advisory-summary.md          # Pre-rendered advisory rules for Stop hook re-injection
-```
+## Phase 1: Rename Imprint → Succession
 
-**Rule file format:**
-```markdown
+### File renames (git mv)
+
+| From | To |
+|------|-----|
+| `scripts/imprint-resolve.sh` | `scripts/succession-resolve.sh` |
+| `scripts/imprint-pre-tool-use.sh` | `scripts/succession-pre-tool-use.sh` |
+| `scripts/imprint-stop.sh` | `scripts/succession-stop.sh` |
+| `scripts/imprint-session-start.sh` | `scripts/succession-session-start.sh` |
+| `scripts/imprint-init.sh` | `scripts/succession-init.sh` |
+| `scripts/imprint-extract-cli.sh` | `scripts/succession-extract-cli.sh` |
+| `scripts/imprint-skill-extract.sh` | `scripts/succession-skill-extract.sh` |
+| `tests/test_imprint.sh` | `tests/test_succession.sh` |
+| `docs/imprint-architecture.md` | `docs/succession-architecture.md` |
+
+### Content replacements (all files)
+
+| Pattern | Replacement |
+|---------|-------------|
+| `~/.imprint` | `~/.succession` |
+| `.imprint/` | `.succession/` |
+| `IMPRINT_GLOBAL_DIR` | `SUCCESSION_GLOBAL_DIR` |
+| `IMPRINT_PROJECT_DIR` | `SUCCESSION_PROJECT_DIR` |
+| `imprint-activity.jsonl` | `succession-activity.jsonl` |
+| `/imprint ` | `/succession ` |
+| `Imprint` (capitalized) | `Succession` |
+| `imprint` (lowercase prose) | `succession` |
+| `log_imprint_event` | `log_succession_event` |
+| `.imprint-turns-` | `.succession-turns-` |
+| `.imprint-extract-offset-` | `.succession-extract-offset-` |
+| `.imprint-correction-flag-` | `.succession-correction-flag-` |
+
+### Verification
+- Run test suite after rename — all 33 tests must pass
+- `grep -r "imprint" scripts/ tests/ docs/ README.md` should return zero hits
+
+---
+
+## Phase 2: Four Knowledge Categories + Effectiveness Tracking
+
+### Extended rule schema
+
+```yaml
 ---
 id: no-force-push
-scope: global                  # global | project
-enforcement: mechanical        # mechanical | semantic | advisory
-type: correction               # correction | confirmation | preference
+scope: global
+enforcement: mechanical
+category: failure-inheritance    # NEW — strategy | failure-inheritance | relational-calibration | meta-cognition
+type: correction                 # KEPT — how it was discovered (correction | confirmation | preference)
 source:
   session: abc-123
   timestamp: 2026-04-01T10:00:00Z
   evidence: "User said: never force push"
-overrides: []                  # Rule IDs this explicitly cancels
+overrides: []
 enabled: true
+effectiveness:                   # NEW — meta-cognition tracking
+  times_followed: 0
+  times_violated: 0
+  times_overridden: 0
+  last_evaluated: null
+---
+```
+
+**Category definitions** (from the research brief):
+- `strategy` — How the agent approaches problems (workflow patterns, methodologies)
+- `failure-inheritance` — Patterns of failure to avoid (anti-patterns, things that went wrong)
+- `relational-calibration` — Communication style adaptation (tone, verbosity, explanation depth)
+- `meta-cognition` — Which heuristics proved reliable vs. which sounded plausible but failed
+
+### Changes needed
+
+1. **`lib.sh`** — extend `parse_rule_frontmatter` to handle `category:` and `effectiveness:` nested block (same pattern as existing `source:` handling)
+
+2. **`succession-stop.sh`** — update extraction prompt to classify rules into four categories. Update rule file writing to include `category:` and `effectiveness:` fields.
+
+3. **`succession-extract-cli.sh`** — same extraction prompt update
+
+4. **`succession-pre-tool-use.sh`** — after blocking checks (or at end if no block), append effectiveness event to `~/.succession/log/effectiveness.jsonl`:
+   ```json
+   {"timestamp":"...","rule_id":"no-force-push","outcome":"violated","session":"..."}
+   ```
+   Must stay < 100ms — single JSONL append is O(1).
+
+4b. **`succession-stop.sh`** — **semantic violation matching**: when a correction is detected (Tier 2 confirms YES), before creating a new rule, Sonnet checks if the correction matches an existing rule. If yes: increment `times_violated` on the existing rule (no new rule created). If no: create new rule as before. This reuses the existing Tier 2 Sonnet call — the match check is an additional ~$0.005 per correction.
+
+   Matching prompt: "Given this user correction: '...' and these existing rules: [...], does this correction indicate a violation of an existing rule? If yes, return the rule ID. If no, return null."
+
+5. **`succession-resolve.sh`** — after cascade resolution, add effectiveness analysis:
+   - Rules with >50% violation rate (over 10+ evaluations) → flag for review
+   - Rules with >80% follow rate + advisory tier → candidate for promotion to semantic
+   - Output `review-candidates.json` in compiled dir
+
+6. **`lib.sh`** — add `update_effectiveness_counters()` function that reads effectiveness.jsonl, groups by rule_id, updates frontmatter counters in rule files. Called by stop hook periodically.
+
+7. **`SKILL.md`** — add `/succession effectiveness` command
+
+8. **Tests** — new tests for category parsing, effectiveness tracking, promotion/demotion
+
+### Append-only meta-cognition log
+
+All rule lifecycle events are recorded in `~/.succession/log/meta-cognition.jsonl` — a complete audit trail of the rule system's evolution:
+
+```jsonl
+{"ts":"...","event":"rule_created","rule_id":"no-force-push","category":"failure-inheritance","source":"extraction","session":"abc"}
+{"ts":"...","event":"rule_violated","rule_id":"no-force-push","session":"abc","context":"git push --force","detected_by":"pre-tool-use"}
+{"ts":"...","event":"correction_matched","rule_id":"no-force-push","session":"abc","user_msg":"don't force push!"}
+{"ts":"...","event":"rule_followed","rule_id":"no-force-push","session":"abc","detected_by":"pre-tool-use"}
+{"ts":"...","event":"rule_promoted","rule_id":"no-force-push","from":"advisory","to":"semantic","reason":"80% follow rate"}
+{"ts":"...","event":"rule_disabled","rule_id":"old-rule","by":"user"}
+{"ts":"...","event":"session_summary","session":"abc","total_rules":15,"violations":3,"follow_rate":0.80}
+```
+
+This log serves multiple purposes:
+- **Effectiveness counters** are materialized views of this log (computed periodically, written to rule frontmatter)
+- **Model quality tracking** — plot rule compliance rates per session to detect regressions from model updates
+- **Category analysis** — which knowledge categories (strategy vs failure-inheritance vs relational-calibration vs meta-cognition) are most/least effective?
+- **Retrospective analysis** — feed into `succession extract` to understand behavioral patterns across sessions
+- **In Phase 3**: loaded as Datascript facts for rich Datalog queries
+
+### Backwards compatibility
+- Rules without `category:` default to `"strategy"`
+- Rules without `effectiveness:` default to all-zero counters
+
 ---
 
-Never force-push to any branch without explicit user confirmation.
+## Phase 3: Migrate to Babashka
 
-## Enforcement
-- block_bash_pattern: "git push.*(--force|-f)"
-- reason: "Force-push blocked — user requires explicit confirmation"
+### Why babashka
+
+- **Datascript** (in-process Datalog) — cascade resolution becomes a 15-line Datalog query instead of 50 lines of jq. Effectiveness analysis, cross-rule inference, and skill-rule relationships become trivial queries.
+- **Proper data structures** — no more fragile YAML parsing with awk/sed/bash string manipulation
+- **~10ms startup** — comparable to bash, well within the 100ms budget for PreToolUse hooks
+- **Built-in deps** — babashka ships with Datascript, Cheshire (JSON), and clojure.spec
+
+### Project structure
+
+```
+bb/
+  bb.edn                          # Project config (paths, no external deps needed)
+  src/succession/
+    core.clj                      # CLI dispatch entry point
+    db.clj                        # Datascript schema + load-from-files + queries
+    resolve.clj                   # Cascade resolution via Datalog
+    yaml.clj                      # Rule file I/O (YAML frontmatter ↔ Clojure maps)
+    effectiveness.clj             # Meta-cognition tracking + analysis
+    extract.clj                   # Extraction prompt building + result parsing
+    skill.clj                     # Skill extraction
+    hooks/
+      pre_tool_use.clj            # Mechanical enforcement
+      session_start.clj           # Resolve + inject
+      stop.clj                    # Correction detection + extraction + re-injection
+  test/succession/
+    db_test.clj
+    resolve_test.clj
+    hooks_test.clj
 ```
 
-### Cascade Resolution (Simple Merge)
+### Datascript schema
 
-No Datalog. The format is designed so a Datalog resolver could be swapped in later without changing rule files.
-
+```clojure
+(def schema
+  {:rule/id              {:db/unique :db.unique/identity}
+   :rule/scope           {}  ; :global | :project
+   :rule/enforcement     {}  ; :mechanical | :semantic | :advisory
+   :rule/category        {}  ; :strategy | :failure-inheritance | :relational-calibration | :meta-cognition
+   :rule/type            {}  ; :correction | :confirmation | :preference
+   :rule/enabled         {}
+   :rule/body            {}
+   :rule/file            {}
+   :rule/overrides       {:db/cardinality :db.cardinality/many :db/valueType :db.type/ref}
+   :rule/source-session  {}
+   :rule/source-timestamp {}
+   :rule/source-evidence {}
+   :rule/directives      {:db/cardinality :db.cardinality/many :db/valueType :db.type/ref}
+   :rule/times-followed  {}
+   :rule/times-violated  {}
+   :rule/times-overridden {}
+   
+   :directive/type       {}  ; :block-bash-pattern | :block-tool | :require-prior-read
+   :directive/pattern    {}
+   :directive/reason     {}
+   
+   :skill/name           {:db/unique :db.unique/identity}
+   :skill/scope          {}
+   :skill/description    {}
+   :skill/trigger        {}
+   :skill/steps          {:db/cardinality :db.cardinality/many}
+   :skill/knowledge      {:db/cardinality :db.cardinality/many}
+   :skill/rules          {:db/cardinality :db.cardinality/many :db/valueType :db.type/ref}})
 ```
-1. Load ~/.imprint/rules/*.md (global)
-2. Load .imprint/rules/*.md (project)
-3. Project rules with same `id` override global rules
-4. Rules with `overrides: [id-1, id-2]` cancel those rules
-5. Filter to enabled: true
-6. Partition into mechanical / semantic / advisory
-7. Compile mechanical → tool-rules.json
-8. Compile semantic → semantic-rules.md (included in prompt hook's prompt)
-9. Render advisory → advisory-summary.md (for re-injection via additionalContext)
+
+### Key design decisions
+
+- **Rule files remain source of truth** — Datascript DB is rebuilt from files on each `resolve`, not persisted. Users edit rules in any text editor, git diffs are clean markdown.
+- **Effectiveness counters live in rule file frontmatter** — written back periodically by the stop hook. The JSONL log is the append-only event stream; counters are the materialized view.
+- **EDN where possible, JSON/YAML where required**:
+  - Rule files: **YAML frontmatter + markdown** (human-edited, universal convention)
+  - Compiled artifacts: **EDN** (machine-generated, native to bb, no serialization overhead)
+  - Config: **EDN** (`config.edn` instead of `config.json`)
+  - Hook stdin/stdout: **JSON** (Claude Code's hook interface, non-negotiable)
+  - Meta-cognition log: **JSONL** (tooling-friendly — jq, grep — queryable outside bb)
+  - Datascript DB snapshot (if persisted): **EDN** (native serialization)
+- **Bash fallback** — init script detects `bb` availability. Without it, bash scripts are used. With it, bb scripts are registered as hooks.
+- **Hook interface unchanged** — JSON on stdin, JSON on stdout, exit 0/2. Babashka scripts are just a different implementation of the same contract.
+
+### Babashka installation
+
+Use babashka's official install script in `succession-init.sh`:
+```bash
+if ! command -v bb &>/dev/null; then
+  echo "Installing babashka..."
+  bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install)
+fi
 ```
+This installs bb locally. Document in README as a prerequisite step.
 
-### Three Enforcement Tiers
-
-Rules like "block `git push --force`" can be regex-matched. Rules like "use Edit instead of sed for source files" require semantic understanding. Rules like "prefer concise responses" can't be enforced at all — only reminded.
-
-| Tier | How | Cost | Example |
-|------|-----|------|---------|
-| **Mechanical** | PreToolUse command hook, regex/exact match | $0, ~10-50ms | Block `git push --force`, require read-before-edit |
-| **Semantic** | PreToolUse prompt hook (Sonnet) | ~$0.005 | "Is this `sed` editing a source file? Use Edit instead" |
-| **Advisory** | Re-injected via `additionalContext` on Stop | $0 | "Prefer concise responses", "ask before large changes" |
-
-**Why Sonnet for semantic checks:** Experiments confirmed Sonnet reasons better than Haiku and actually saves tokens overall (fewer retries/misunderstandings). Sonnet has its own quota in Claude Code, so cost is manageable.
-
-Each rule's `enforcement` frontmatter field determines its tier. The resolve step compiles them into three separate artifacts.
-
-### Hook Architecture (4 hooks)
-
-| Hook | Event | Type | What it does | Cost |
-|------|-------|------|-------------|------|
-| `imprint-session-start.sh` | SessionStart | command | Cascade resolution, compile all three enforcement artifacts, inject advisory rules via `additionalContext` | $0 |
-| `imprint-pre-tool-use.sh` | PreToolUse | command | Read compiled `tool-rules.json`, block violations mechanically | $0, ~10-50ms |
-| (inline in settings.json) | PreToolUse | prompt | Sonnet evaluates tool call against compiled semantic rules. Returns `{ok: false, reason}` to block. | ~$0.005 |
-| `imprint-stop.sh` | Stop | command | 3-tier correction detection, pattern extraction → write rule files, periodic advisory re-injection via `additionalContext` | $0 most turns, ~$0.01-0.02 on extraction |
-| (inline in settings.json) | Stop | prompt | Sonnet audits the completed response against advisory rules (catches things PreToolUse can't, e.g. "don't summarize what you just did") | ~$0.005 |
-
-**Why command hooks for most things:** Command is the only type that can (a) read transcripts, (b) write files, (c) return `additionalContext` for drift-resistant re-injection.
-
-**Why a prompt hook for semantic PreToolUse:** It only needs block/allow (no `additionalContext`), and embedding the check as a prompt hook avoids shell-spawning `claude -p`. Sonnet gets the compiled semantic rules + tool input JSON and makes a judgment call.
-
-**Advisory re-injection (the drift fix):** Every N turns (default 10), the Stop hook includes the compiled `advisory-summary.md` in its `additionalContext` output. This is free (just reading a file) and keeps soft rules in recent context — unlike SessionStart injection which only fires once.
-
-### Retrospective Transcript Analysis
-
-CLI tool for post-hoc extraction from past Claude Code sessions:
+### Coexistence during migration
 
 ```bash
-imprint extract <transcript.jsonl>           # Extract rules from a transcript
-imprint extract --session <id>               # Auto-find transcript by session ID
-imprint extract --last                       # Most recent session
-imprint extract --from-turn 42 <transcript>  # Analyze from turn 42 onward ("what went wrong?")
-imprint extract --apply                      # Write extracted rules (default: dry run to stdout)
-imprint extract --interactive                # Drop into Claude conversation to explore transcript
+# In succession-init.sh
+if command -v bb &>/dev/null; then
+  HOOK_CMD="bb ${HOOKS_DIR}/succession-pre-tool-use.bb"
+else
+  HOOK_CMD="${HOOKS_DIR}/succession-pre-tool-use.sh"
+fi
 ```
-
-The `--interactive` mode starts a Claude session with the transcript loaded as context, letting you ask questions like "what corrections did the user make?" or "why did performance degrade after turn 50?" and selectively extract rules.
-
-**Implementation:** Shell script that reads JSONL, filters to human/assistant messages, and either:
-- Runs extraction prompt via `claude -p` (batch mode)
-- Starts `claude` with transcript as context (interactive mode)
-
-### Skill Extraction from Transcripts
-
-A "skill" is a replayable bundle of behavioral patterns + domain knowledge — like a recipe the agent learned from doing a task. Unlike rules (which are constraints/corrections), skills are **positive patterns** — "when doing X, here's how to do it well."
-
-```bash
-imprint skill extract <transcript.jsonl>         # Extract skill from a transcript
-imprint skill extract --interactive <transcript>  # Interactive exploration first
-imprint skill extract --name "deploy-flow"        # Name the extracted skill
-```
-
-**What it produces:** A `SKILL.md` file containing:
-- **Context:** When this skill applies (trigger conditions)
-- **Steps:** The behavioral pattern / workflow observed in the transcript
-- **Knowledge:** Domain facts learned during the task
-- **Rules:** Any corrections/preferences specific to this skill
-
-**Where skills live:**
-```
-~/.imprint/skills/<name>/SKILL.md    # Global skills (available everywhere)
-.imprint/skills/<name>/SKILL.md      # Project skills (project-specific)
-```
-
-Skills are injected via SessionStart `additionalContext` alongside advisory rules. They follow the same cascade: project skills override global skills with the same name.
-
-**Relationship to rules:** Skill extraction uses the same transcript analysis pipeline as rule extraction, but with a different prompt that focuses on "what was the workflow?" rather than "what corrections were made?" Both can run on the same transcript — `imprint extract` for rules, `imprint skill extract` for skills.
-
----
-
-## Implementation Plan
-
-### Step 1: Rule file infrastructure
-- Create `imprint-resolve.sh` (~80 lines) — reads rule files from global + project dirs, applies cascade logic, outputs three compiled artifacts: `tool-rules.json` (mechanical), `semantic-rules.md` (semantic), `advisory-summary.md` (advisory)
-- Create `lib.sh` (~50 lines) — shared utilities (logging, model mapping, config reading)
-
-**Key files to port from:**
-- `skills/soul/scripts/session-start.sh` — cascade assembly logic (lines 40-120)
-- `skills/soul/scripts/lib.sh` — model mapping, logging helpers
-
-### Step 2: PreToolUse enforcement
-- Create `imprint-pre-tool-use.sh` (~80 lines) — nearly identical to existing `skills/soul/scripts/pre-tool-use.sh` (78 lines), just change paths from `.soul/invariants/tool-rules.json` to `.imprint/compiled/tool-rules.json`
-
-**Port from:** `skills/soul/scripts/pre-tool-use.sh` (reuse almost entirely)
-
-### Step 3: Stop hook (correction detection + extraction + re-injection)
-- Create `imprint-stop.sh` (~300 lines) with three phases:
-  1. **Correction detection** — port 3-tier pipeline from `skills/soul/scripts/conscience.sh` lines 240-298
-  2. **Pattern extraction** — port from conscience.sh lines 400-500, but modify output to write individual rule files instead of appending to `learned.md`. Each extracted rule gets its own file in `.imprint/rules/` with full frontmatter.
-  3. **Advisory re-injection** — every N turns, read `advisory-summary.md` and return it as `additionalContext`. After writing new rules, re-run resolve to update compiled artifacts.
-
-**Port from:** `skills/soul/scripts/conscience.sh` (correction detection + extraction phases)
-
-### Step 4: SessionStart hook
-- Create `imprint-session-start.sh` (~120 lines) — run resolve, inject advisory rules via `additionalContext`
-
-**Port from:** `skills/soul/scripts/session-start.sh` (simplified — no SOUL.md, no genome ordering, no skill generation)
-
-### Step 5: Init script + skill
-- Create `imprint-init.sh` (~100 lines) — setup dirs, register 4 hooks in settings.json:
-  - SessionStart command hook → `imprint-session-start.sh`
-  - PreToolUse command hook → `imprint-pre-tool-use.sh` (mechanical)
-  - PreToolUse prompt hook with `model: "claude-sonnet-4-6"` — prompt reads compiled `semantic-rules.md` at init time and embeds it. Re-generated by resolve step whenever semantic rules change.
-  - Stop command hook → `imprint-stop.sh`
-- Create `~/.claude/skills/imprint/SKILL.md` — `/imprint setup`, `/imprint show`, `/imprint review` commands
-- Hooks install globally for enforcement; skill provides UX commands
-
-### Step 6: Retrospective CLI
-- Create `imprint-extract-cli.sh` (~150 lines) — transcript analysis tool
-- Batch mode: read JSONL → filter messages → run extraction prompt → output proposed rules
-- Interactive mode: start `claude` with transcript context for exploratory analysis
-- `--from-turn N` flag for investigating degradation points
-
-### Step 7: Skill extraction CLI
-- Create `imprint-skill-extract.sh` (~150 lines) — transcript → SKILL.md extraction
-- Uses same transcript reading infrastructure as `imprint-extract-cli.sh`
-- Different extraction prompt: "what workflow/patterns were demonstrated?" vs "what corrections were made?"
-- Batch mode outputs SKILL.md to stdout or writes to `~/.imprint/skills/<name>/` with `--apply`
-- Interactive mode for exploratory transcript analysis before extraction
-
-### Step 8: Migration + cleanup
-- `imprint migrate` command to convert existing `.soul/invariants/learned.md` or CLAUDE.md `## Learned Rules` into individual rule files
-- Archive old SOUL scripts to `archive/`
-- Update README
-
----
-
-## What We Drop from SOUL
-
-| Component | Disposition | Reason |
-|---|---|---|
-| SOUL.md (identity store) | Drop | Focus is behavioral rules, not knowledge |
-| Rolling compaction (PostCompact) | Drop | Individual rule files don't need compression |
-| Genome ordering (base → language → archetype) | Drop | Simplified to two levels: global → project |
-| Conscience audit (LLM auditing LLM) | Keep (redesigned) | Moved from command hook calling `claude -p` → native Stop prompt hook. Sonnet checks completed response against advisory/semantic rules. Cheaper, cleaner. |
-| tool-rules.json heuristic generation from invariant text | Keep | Moves into resolve step |
-| 3-tier correction detection | Keep | Proven, cheap |
-| PreToolUse enforcement | Keep (expanded) | Now two tiers: mechanical (command hook) + semantic (prompt hook) |
-| Pattern extraction prompt | Keep (modified) | Outputs individual rule files instead of learned.md |
-| Skills generation / export | Keep (redesigned) | Becomes part of retrospective CLI — extract replayable skill bundles from transcripts (see below) |
 
 ---
 
 ## Verification
 
-1. **Unit tests:** Port `experiments/06-soul-bench/test_hooks.sh` pattern — mock `claude` binary, test each hook in isolation
-2. **Cascade test:** Create conflicting global + project rules, verify project wins after resolve
-3. **Enforcement test:** Create a `block_bash_pattern` rule, verify PreToolUse blocks matching commands
-4. **Re-injection test:** Verify Stop hook returns `additionalContext` with advisory rules every N turns
-5. **Extraction test:** Simulate a correction in a transcript, verify a new rule file is created with correct frontmatter
-6. **Retrospective test:** Run `imprint extract` on a real past transcript, verify it produces sensible rules
-7. **End-to-end:** Install via `imprint-init.sh`, start a Claude Code session, make a correction, verify rule is extracted and enforced in subsequent tool calls
+### Phase 1
+- All 33 existing tests pass after rename
+- `grep -ri "imprint" scripts/ tests/ docs/ README.md` returns zero
+
+### Phase 2
+- New tests for category parsing, effectiveness tracking, promotion logic
+- Backwards compat: old rule files without category/effectiveness still load
+- Effectiveness logging in PreToolUse stays < 100ms
+
+### Phase 3
+- **Pure function tests**: cascade resolution, YAML parsing, effectiveness analysis are all pure functions (data → data) — tested with `clojure.test`, no temp dirs or mock binaries needed
+- **Property-based tests**: rule file round-tripping (parse → write → parse = identity) via `clojure.spec` generators
+- **Data-driven test cases**: same test data shared between bash and bb suites to verify identical outputs
+- **Datascript query tests**: cascade resolution, effectiveness queries, cross-rule inference
+- **Meta-cognition log tests**: verify events are written, counters materialized correctly, category analysis queries
+- **Benchmark**: mechanical hook < 100ms, session-start < 200ms
+- **Integration**: run bash tests and bb tests against same rule files, verify identical compiled artifacts
 
 ---
 
-## File Summary
+## Files to modify
 
-| File | Lines (est) | Purpose |
-|------|------------|---------|
-| `imprint-resolve.sh` | ~80 | Cascade resolution → 3 compiled artifacts |
-| `lib.sh` | ~50 | Shared utilities |
-| `imprint-pre-tool-use.sh` | ~80 | Mechanical rule enforcement (command hook) |
-| `imprint-stop.sh` | ~300 | Correction detection + extraction + re-injection (command hook) |
-| `imprint-session-start.sh` | ~120 | Compile rules + inject advisory context (command hook) |
-| `imprint-init.sh` | ~100 | One-time setup + register all 4 hooks |
-| `imprint-extract-cli.sh` | ~150 | Retrospective rule extraction from transcripts |
-| `imprint-skill-extract.sh` | ~150 | Retrospective skill extraction from transcripts |
-| `SKILL.md` | ~60 | /imprint commands for UX |
-| **Total** | **~1,090** | Down from ~1,800 in SOUL v2 |
+### Phase 1 (rename only — no logic changes)
+- All files in `scripts/`, `tests/`, `docs/`, `README.md`
 
-Note: The semantic PreToolUse prompt hook and Stop audit prompt hook are configured inline in `settings.json` (no script files). Their prompt text is generated by `imprint-resolve.sh` and embedded during init/resolve.
+### Phase 2 (extend schema + add tracking)
+- `scripts/lib.sh` — parse `category:` and `effectiveness:`, add `update_effectiveness_counters()`
+- `scripts/succession-stop.sh` — extraction prompt, rule writing, effectiveness batch update
+- `scripts/succession-extract-cli.sh` — extraction prompt
+- `scripts/succession-pre-tool-use.sh` — effectiveness event logging
+- `scripts/succession-resolve.sh` — effectiveness analysis after cascade
+- `scripts/SKILL.md` — `/succession effectiveness` command
+- `tests/test_succession.sh` — new tests
+
+### Phase 3 (babashka rewrite)
+- New `bb/` directory with all files listed above
+- `scripts/succession-init.sh` — bb detection and hook registration
+- `README.md` — babashka install instructions
+- `docs/succession-architecture.md` — updated architecture

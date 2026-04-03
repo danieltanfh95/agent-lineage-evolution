@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Imprint — Retrospective Rule Extraction CLI
+# Succession — Retrospective Rule Extraction CLI
 # Extracts behavioral rules from past Claude Code transcripts.
 #
 # Usage:
-#   imprint-extract-cli.sh <transcript.jsonl>              # Extract from specific file
-#   imprint-extract-cli.sh --session <id>                  # Find transcript by session ID
-#   imprint-extract-cli.sh --last                          # Most recent session
-#   imprint-extract-cli.sh --from-turn <N> <transcript>    # Extract from turn N onward
-#   imprint-extract-cli.sh --interactive <transcript>      # Interactive exploration
-#   imprint-extract-cli.sh --apply <transcript>            # Write rules (default: dry run)
+#   succession-extract-cli.sh <transcript.jsonl>              # Extract from specific file
+#   succession-extract-cli.sh --session <id>                  # Find transcript by session ID
+#   succession-extract-cli.sh --last                          # Most recent session
+#   succession-extract-cli.sh --from-turn <N> <transcript>    # Extract from turn N onward
+#   succession-extract-cli.sh --interactive <transcript>      # Interactive exploration
+#   succession-extract-cli.sh --apply <transcript>            # Write rules (default: dry run)
 
 set -euo pipefail
 
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
     --interactive) INTERACTIVE=true; shift ;;
     --apply)       APPLY=true; shift ;;
     --help|-h)
-      echo "Usage: imprint-extract-cli.sh [options] [transcript.jsonl]"
+      echo "Usage: succession-extract-cli.sh [options] [transcript.jsonl]"
       echo ""
       echo "Options:"
       echo "  --session <id>      Find transcript by session ID"
@@ -99,7 +99,7 @@ fi
 
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   echo "Error: No transcript specified or file not found" >&2
-  echo "Usage: imprint-extract-cli.sh [--last | --session <id> | <path>]" >&2
+  echo "Usage: succession-extract-cli.sh [--last | --session <id> | <path>]" >&2
   exit 1
 fi
 
@@ -168,7 +168,7 @@ MODEL_ID=$(map_model_id "sonnet")
 
 # Load existing rules for deduplication
 EXISTING_RULES=""
-for rf in "${PWD}/.imprint/rules"/*.md "${HOME}/.imprint/rules"/*.md; do
+for rf in "${PWD}/.succession/rules"/*.md "${HOME}/.succession/rules"/*.md; do
   [ -f "$rf" ] || continue
   EXISTING_RULES+="- $(basename "$rf" .md): $(head -20 "$rf" | grep -v '^---' | grep -v '^$' | head -2 | tr '\n' ' ')
 "
@@ -267,9 +267,9 @@ if [ "$APPLY" = true ] && [ "$RULE_COUNT" -gt 0 ]; then
     revidence=$(echo "$rule_json" | jq -r '.evidence')
 
     if [ "$rscope" = "global" ]; then
-      TARGET_DIR="${HOME}/.imprint/rules"
+      TARGET_DIR="${HOME}/.succession/rules"
     else
-      TARGET_DIR="${PWD}/.imprint/rules"
+      TARGET_DIR="${PWD}/.succession/rules"
     fi
     mkdir -p "$TARGET_DIR"
 
@@ -312,7 +312,7 @@ if [ "$APPLY" = true ] && [ "$RULE_COUNT" -gt 0 ]; then
   done < <(echo "$EXTRACT_RESULT" | jq -c '.rules[]')
 
   echo ""
-  echo "Written ${RULES_WRITTEN} rule(s). Run 'imprint-resolve.sh ${PWD}' to compile."
+  echo "Written ${RULES_WRITTEN} rule(s). Run 'succession-resolve.sh ${PWD}' to compile."
 else
   if [ "$RULE_COUNT" -gt 0 ]; then
     echo "Dry run — use --apply to write these rules to disk."

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Imprint — Cascade Resolution
-# Reads rule files from global (~/.imprint/rules/) and project (.imprint/rules/),
+# Succession — Cascade Resolution
+# Reads rule files from global (~/.succession/rules/) and project (.succession/rules/),
 # applies cascade logic, and compiles into three enforcement artifacts:
 #   1. tool-rules.json      — mechanical PreToolUse enforcement
 #   2. semantic-rules.md    — semantic PreToolUse prompt hook
 #   3. advisory-summary.md  — advisory re-injection via additionalContext
 #
 # Usage: source this file, then call resolve_rules "$PROJECT_DIR"
-# Or run standalone: ./imprint-resolve.sh <project_dir>
+# Or run standalone: ./succession-resolve.sh <project_dir>
 
 set -euo pipefail
 
@@ -45,9 +45,9 @@ load_rules_from_dir() {
 # Main resolution: cascade global + project rules, compile artifacts.
 resolve_rules() {
   local project_dir="$1"
-  local global_dir="${IMPRINT_GLOBAL_DIR}/rules"
-  local project_rules_dir="${project_dir}/.imprint/rules"
-  local compiled_dir="${project_dir}/.imprint/compiled"
+  local global_dir="${SUCCESSION_GLOBAL_DIR}/rules"
+  local project_rules_dir="${project_dir}/.succession/rules"
+  local compiled_dir="${project_dir}/.succession/compiled"
 
   mkdir -p "$compiled_dir"
 
@@ -172,7 +172,7 @@ resolve_rules() {
   semantic_count=$(echo "$semantic" | jq 'length')
   advisory_count=$(echo "$advisory" | jq 'length')
 
-  log_imprint_event "resolve" \
+  log_succession_event "resolve" \
     --argjson total "$total_count" \
     --argjson mechanical "$mechanical_count" \
     --argjson semantic "$semantic_count" \

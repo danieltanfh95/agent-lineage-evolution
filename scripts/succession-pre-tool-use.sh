@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Imprint — PreToolUse Enforcement Hook (Mechanical Tier)
+# Succession — PreToolUse Enforcement Hook (Mechanical Tier)
 # Blocks tool calls that violate compiled mechanical rules.
 # Input: JSON on stdin with tool_name, tool_input, cwd, session_id, transcript_path
 # Output: {"decision": "block", "reason": "..."} or exit 0 to allow
@@ -9,11 +9,11 @@ set -euo pipefail
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""')
-COMPILED_DIR="${CWD}/.imprint/compiled"
+COMPILED_DIR="${CWD}/.succession/compiled"
 TOOL_RULES_FILE="${COMPILED_DIR}/tool-rules.json"
 
 # Also check global compiled rules as fallback
-GLOBAL_RULES_FILE="${HOME}/.imprint/compiled/tool-rules.json"
+GLOBAL_RULES_FILE="${HOME}/.succession/compiled/tool-rules.json"
 
 # Find the first available rules file
 if [ -f "$TOOL_RULES_FILE" ]; then
@@ -32,7 +32,7 @@ BLOCK_REASON=$(jq -r --arg tool "$TOOL_NAME" \
   "$RULES_FILE" 2>/dev/null | head -1)
 
 if [ -n "$BLOCK_REASON" ]; then
-  jq -n --arg reason "Imprint: ${BLOCK_REASON}" '{"decision": "block", "reason": $reason}'
+  jq -n --arg reason "Succession: ${BLOCK_REASON}" '{"decision": "block", "reason": $reason}'
   exit 0
 fi
 
@@ -44,7 +44,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
       pattern=$(echo "$rule" | jq -r '.block_bash_pattern')
       reason=$(echo "$rule" | jq -r '.reason')
       if echo "$COMMAND" | grep -qE "$pattern" 2>/dev/null; then
-        jq -n --arg reason "Imprint: ${reason}" '{"decision": "block", "reason": $reason}'
+        jq -n --arg reason "Succession: ${reason}" '{"decision": "block", "reason": $reason}'
         exit 0
       fi
     done < <(jq -c '.[] | select(.block_bash_pattern != null)' "$RULES_FILE" 2>/dev/null)
@@ -64,7 +64,7 @@ if [ "$TOOL_NAME" = "Edit" ]; then
         'select(.type == "tool_use" and .tool_name == "Read" and .tool_input.file_path == $fp) | .tool_name' \
         2>/dev/null | head -1)
       if [ -z "$PRIOR_READ" ]; then
-        jq -n --arg reason "Imprint: ${HAS_READ_RULE}" '{"decision": "block", "reason": $reason}'
+        jq -n --arg reason "Succession: ${HAS_READ_RULE}" '{"decision": "block", "reason": $reason}'
         exit 0
       fi
     fi

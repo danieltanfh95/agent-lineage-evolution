@@ -1,69 +1,69 @@
 ---
-name: imprint
+name: succession
 description: "Behavioral pattern extraction and rule management for AI coding agents"
 ---
 
-# Imprint — Behavioral Pattern Extraction
+# Succession — Behavioral Pattern Extraction
 
-You are the Imprint skill. You help users manage behavioral rules that are extracted from conversations and enforced across sessions.
+You are the Succession skill. You help users manage behavioral rules that are extracted from conversations and enforced across sessions.
 
 ## Architecture
 
-Imprint uses three enforcement tiers:
+Succession uses three enforcement tiers:
 - **Mechanical**: PreToolUse command hook blocks tool calls via regex (free, deterministic)
 - **Semantic**: PreToolUse prompt hook uses Sonnet to evaluate tool calls against semantic rules (~$0.005/call)
 - **Advisory**: Stop hook periodically re-injects soft rules via additionalContext to combat instruction drift
 
 Rules are stored as individual markdown files with YAML frontmatter:
-- Global: `~/.imprint/rules/` (apply to all projects)
-- Project: `.imprint/rules/` (project-specific, override global)
+- Global: `~/.succession/rules/` (apply to all projects)
+- Project: `.succession/rules/` (project-specific, override global)
 
 Cascade: project rules override global rules with the same `id`. Rules with `overrides: [id]` explicitly cancel referenced rules.
 
 ## Commands
 
-### /imprint setup
-Run the init script to set up Imprint in the current project.
+### /succession setup
+Run the init script to set up Succession in the current project.
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/imprint-init.sh"
+bash "$CLAUDE_PROJECT_DIR/scripts/succession-init.sh"
 ```
 
-### /imprint show
+### /succession show
 Show all active rules after cascade resolution. Read and display:
-1. All files in `~/.imprint/rules/*.md` (global)
-2. All files in `.imprint/rules/*.md` (project)
-3. The compiled artifacts in `.imprint/compiled/`
+1. All files in `~/.succession/rules/*.md` (global)
+2. All files in `.succession/rules/*.md` (project)
+3. The compiled artifacts in `.succession/compiled/`
 Explain which rules are active, which are overridden, and the enforcement tier for each.
 
-### /imprint review
-Review recently extracted rules. Read `.imprint/log/imprint-activity.jsonl` for recent `extraction` events, then show the corresponding rule files. Let the user:
+### /succession review
+Review recently extracted rules. Read `.succession/log/succession-activity.jsonl` for recent `extraction` events, then show the corresponding rule files. Let the user:
 - Disable a rule: set `enabled: false` in its frontmatter
 - Delete a rule: remove the file
 - Edit a rule: modify the file content
-- Change scope: move between `~/.imprint/rules/` and `.imprint/rules/`
+- Change scope: move between `~/.succession/rules/` and `.succession/rules/`
 
-### /imprint extract [path]
+### /succession extract [path]
 Run retrospective extraction on a past transcript. If no path given, list recent sessions from `~/.claude/projects/`. Then run:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/imprint-extract-cli.sh" [path] [flags]
+bash "$CLAUDE_PROJECT_DIR/scripts/succession-extract-cli.sh" [path] [flags]
 ```
 
-### /imprint skill extract [path]
+### /succession skill extract [path]
 Extract a replayable skill from a transcript. Run:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/imprint-skill-extract.sh" [path] [flags]
+bash "$CLAUDE_PROJECT_DIR/scripts/succession-skill-extract.sh" [path] [flags]
 ```
 
-### /imprint add <rule-text>
+### /succession add <rule-text>
 Create a new rule file from a one-line description. Ask the user:
 1. What enforcement tier? (mechanical / semantic / advisory)
 2. What scope? (global / project)
 3. For mechanical: what enforcement directives?
 Then write the rule file with proper frontmatter.
 
-### /imprint resolve
+### /succession resolve
 Manually re-run cascade resolution:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/imprint-resolve.sh" "$CLAUDE_PROJECT_DIR"
+bash "$CLAUDE_PROJECT_DIR/scripts/succession-resolve.sh" "$CLAUDE_PROJECT_DIR"
 ```
 Then show the compiled artifacts.
