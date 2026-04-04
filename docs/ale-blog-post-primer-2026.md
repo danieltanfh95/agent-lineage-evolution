@@ -65,7 +65,7 @@ The four knowledge categories map directly to the gaps I described in the lucid 
 
 ## Ongoing Experiments and Collaboration
 
-We have a suite of seven experiments designed to validate different aspects of the framework, ranging from compaction quality trajectories to extraction precision across difficulty levels to instruction drift reproduction. Some have initial results, others are still protocol-only. The full details are in the [whitepaper](succession-whitepaper-2026.md) and the `experiments/` directory of the repo.
+We have a suite of seven experiments designed to validate different aspects of the framework, ranging from compaction quality trajectories to extraction precision across difficulty levels to instruction drift reproduction. Some have initial results on the compaction layer (shared between SOUL and Succession), others are still protocol-only. We are currently running the Succession-specific benchmarks — testing the full pipeline with mechanical enforcement, correction extraction, and behavioral transfer — and will publish the results in a forthcoming whitepaper. The experiment protocols and early results are in the `experiments/` directory of the repo.
 
 What we are most interested in right now is whether other people run into the same behavioral amnesia problems we do, and whether the framework's assumptions hold outside our own workflows. If you are working with long-running agentic sessions and have opinions on how agent behavior degrades, or if you want to try Succession on your own projects and report back, we would love to hear from you. The repo is open source and the experiment protocols are designed to be reproducible.
 
@@ -73,7 +73,7 @@ We are also looking for collaborators on the experiments we have not yet run, pa
 
 ## Links
 
-- **Paper**: [Guided Behavioral Evolution for LLM Agents](succession-whitepaper-2026.md) (also on Zenodo)
+- **Paper**: Guided Behavioral Evolution for LLM Agents (forthcoming — Succession-specific benchmarks in progress)
 - **Repo**: [github.com/danieltanfh95/agent-lineage-evolution](https://github.com/danieltanfh95/agent-lineage-evolution)
 - **Original ALE blog post** (June 2025): [Agent Lineage Evolution: A Novel Framework for Managing LLM Agent Degradation](https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation)
 
