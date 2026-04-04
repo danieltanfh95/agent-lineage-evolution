@@ -27,9 +27,9 @@ You tell your AI agent "don't use subagents" or "always read before editing." It
 
 **Retrospective analysis** — extract rules from past transcripts:
 ```bash
-./scripts/succession-extract-cli.sh --last           # Most recent session
-./scripts/succession-extract-cli.sh --interactive     # Explore transcript interactively
-./scripts/succession-skill-extract.sh --last --apply  # Extract replayable skill bundle
+bb -cp bb/src -m succession.extract --last           # Most recent session
+bb -cp bb/src -m succession.extract --interactive     # Explore transcript interactively
+bb -cp bb/src -m succession.skill --last --apply      # Extract replayable skill bundle
 ```
 
 ## Quick Start
@@ -40,7 +40,7 @@ You tell your AI agent "don't use subagents" or "always read before editing." It
 
 This creates `~/.succession/` (global rules + hooks) and `.succession/` (project rules), and registers hooks in `~/.claude/settings.json`.
 
-If [babashka](https://github.com/babashka/babashka) is installed, the init script will register the bb-based hooks (Clojure, better data structures, ~10ms startup). Otherwise it falls back to bash+jq hooks. Install bb with:
+Requires [babashka](https://github.com/babashka/babashka) (Clojure scripting, ~10ms startup):
 
 ```bash
 bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install)
@@ -99,10 +99,10 @@ Resolution: project rules with the same `id` override global rules. Rules with `
 
 | Hook | Event | Type | Purpose |
 |------|-------|------|---------|
-| `succession-session-start.sh` | SessionStart | command | Cascade resolve + inject advisory rules |
-| `succession-pre-tool-use.sh` | PreToolUse | command | Mechanical enforcement (free, deterministic) |
+| `session_start.clj` | SessionStart | command | Cascade resolve + inject advisory rules |
+| `pre_tool_use.clj` | PreToolUse | command | Mechanical enforcement (free, deterministic) |
 | (inline prompt) | PreToolUse | prompt | Semantic enforcement (Sonnet, ~$0.005) |
-| `succession-stop.sh` | Stop | command | Correction detection + extraction + re-injection |
+| `stop.clj` | Stop | command | Correction detection + extraction + re-injection |
 | (inline prompt) | Stop | prompt | Response audit against advisory rules |
 
 ### Skill Extraction
@@ -117,15 +117,8 @@ Extract replayable skill bundles from transcripts — a SKILL.md containing trig
 ## Directory Structure
 
 ```
-scripts/                              # Bash hook scripts and CLI tools
-  lib.sh                              # Shared utilities
-  succession-resolve.sh               # Cascade resolution → compiled artifacts
-  succession-pre-tool-use.sh          # Mechanical PreToolUse enforcement
-  succession-stop.sh                  # Stop hook (detection + extraction + re-injection)
-  succession-session-start.sh         # SessionStart hook
-  succession-init.sh                  # One-time setup (detects bb, registers hooks)
-  succession-extract-cli.sh           # Retrospective rule extraction
-  succession-skill-extract.sh         # Retrospective skill extraction
+scripts/
+  succession-init.sh                  # One-time setup (requires bb, registers hooks)
   SKILL.md                            # /succession commands
 bb/                                   # Babashka (Clojure) implementation
   bb.edn                              # Project config
@@ -133,14 +126,16 @@ bb/                                   # Babashka (Clojure) implementation
     yaml.clj                          # Rule file I/O (YAML frontmatter ↔ Clojure maps)
     resolve.clj                       # Cascade resolution
     effectiveness.clj                 # Meta-cognition tracking + analysis
+    activity.clj                      # Project-scoped activity logging
+    transcript.clj                    # Transcript finding + reading
+    extract.clj                       # Retrospective rule extraction CLI
+    skill.clj                         # Skill bundle extraction CLI
     core.clj                          # CLI entry point
     hooks/
       pre_tool_use.clj                # Mechanical enforcement
       session_start.clj               # Resolve + inject
       stop.clj                        # Correction detection + extraction + re-injection
-  test/succession/                    # Pure function tests (clojure.test)
-tests/
-  test_succession.sh                  # Bash hook regression tests (no API calls)
+  test/succession/                    # Unit + integration tests (66 tests, clojure.test)
 docs/                                 # Architecture docs and whitepaper
   archive/                            # Previous SOUL framework docs
 experiments/                          # Empirical validation

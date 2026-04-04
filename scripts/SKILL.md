@@ -45,13 +45,13 @@ Review recently extracted rules. Read `.succession/log/succession-activity.jsonl
 ### /succession extract [path]
 Run retrospective extraction on a past transcript. If no path given, list recent sessions from `~/.claude/projects/`. Then run:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/succession-extract-cli.sh" [path] [flags]
+bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m succession.extract [path] [flags]
 ```
 
 ### /succession skill extract [path]
 Extract a replayable skill from a transcript. Run:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/succession-skill-extract.sh" [path] [flags]
+bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m succession.skill [path] [flags]
 ```
 
 ### /succession add <rule-text>
@@ -72,6 +72,6 @@ Show effectiveness tracking data for all rules:
 ### /succession resolve
 Manually re-run cascade resolution:
 ```bash
-bash "$CLAUDE_PROJECT_DIR/scripts/succession-resolve.sh" "$CLAUDE_PROJECT_DIR"
+bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m succession.core resolve "$CLAUDE_PROJECT_DIR"
 ```
 Then show the compiled artifacts including review-candidates.json.

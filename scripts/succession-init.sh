@@ -31,25 +31,25 @@ if [ "$PROJECT_ONLY" = false ]; then
   mkdir -p "${GLOBAL_DIR}/compiled"
   mkdir -p "${GLOBAL_DIR}/log"
 
-  # Copy scripts to global location
-  mkdir -p "${GLOBAL_DIR}/scripts"
-  cp "${SCRIPT_DIR}/lib.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/succession-resolve.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/succession-pre-tool-use.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/succession-stop.sh" "${GLOBAL_DIR}/scripts/"
-  cp "${SCRIPT_DIR}/succession-session-start.sh" "${GLOBAL_DIR}/scripts/"
-  chmod +x "${GLOBAL_DIR}/scripts"/*.sh
+  # Require babashka
+  if ! command -v bb &>/dev/null; then
+    echo "Error: babashka (bb) is required. Install with:"
+    echo "  bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install)"
+    exit 1
+  fi
 
-  # Copy babashka source if available
+  # Copy babashka source
   BB_DIR="$(cd "${SCRIPT_DIR}/../bb" 2>/dev/null && pwd)"
   if [ -d "$BB_DIR" ]; then
     cp -r "$BB_DIR" "${GLOBAL_DIR}/bb"
     echo "  ~/.succession/bb/           — babashka implementation"
+  else
+    echo "Error: bb/ source directory not found at ${SCRIPT_DIR}/../bb"
+    exit 1
   fi
 
   echo "  ~/.succession/rules/        — global rules"
   echo "  ~/.succession/skills/       — global skills"
-  echo "  ~/.succession/scripts/      — hook scripts"
   echo ""
 
   # Default config
@@ -93,21 +93,11 @@ echo ""
 if [ "$PROJECT_ONLY" = false ]; then
   echo "Registering hooks in Claude Code settings..."
 
-  HOOKS_SCRIPT_DIR="${GLOBAL_DIR}/scripts"
   BB_SRC_DIR="${GLOBAL_DIR}/bb"
 
-  # Prefer babashka hooks if bb is available and sources exist
-  if command -v bb &>/dev/null && [ -d "$BB_SRC_DIR" ]; then
-    SESSION_START_CMD="bb -cp ${BB_SRC_DIR}/src -m succession.hooks.session-start"
-    PRE_TOOL_USE_CMD="cat | bb -cp ${BB_SRC_DIR}/src -m succession.hooks.pre-tool-use"
-    STOP_CMD="cat | bb -cp ${BB_SRC_DIR}/src -m succession.hooks.stop"
-    echo "Using babashka hooks (bb detected)"
-  else
-    SESSION_START_CMD="${HOOKS_SCRIPT_DIR}/succession-session-start.sh"
-    PRE_TOOL_USE_CMD="cat | ${HOOKS_SCRIPT_DIR}/succession-pre-tool-use.sh"
-    STOP_CMD="cat | ${HOOKS_SCRIPT_DIR}/succession-stop.sh"
-    echo "Using bash hooks (bb not found, install with: bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install))"
-  fi
+  SESSION_START_CMD="bb -cp ${BB_SRC_DIR}/src -m succession.hooks.session-start"
+  PRE_TOOL_USE_CMD="cat | bb -cp ${BB_SRC_DIR}/src -m succession.hooks.pre-tool-use"
+  STOP_CMD="cat | bb -cp ${BB_SRC_DIR}/src -m succession.hooks.stop"
 
   # Build the hooks JSON
   HOOKS_JSON=$(jq -n \
