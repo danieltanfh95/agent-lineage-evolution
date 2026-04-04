@@ -12,14 +12,18 @@
 
 (defn- split-frontmatter
   "Split a rule file into [frontmatter-string body-string].
-   Returns nil if no valid frontmatter found."
+   Returns nil if no valid frontmatter found.
+   The closing --- must be on its own line (possibly with whitespace)."
   [content]
   (when (str/starts-with? content "---")
     (let [rest (subs content 3)
-          idx  (str/index-of rest "---")]
-      (when idx
-        [(str/trim (subs rest 0 idx))
-         (str/trim (subs rest (+ idx 3)))]))))
+          ;; Find closing --- that appears at start of a line
+          matcher (re-matcher #"(?m)^---\s*$" rest)]
+      (when (.find matcher)
+        (let [idx (.start matcher)
+              end-idx (+ idx (count (.group matcher)))]
+          [(str/trim (subs rest 0 idx))
+           (str/trim (subs rest end-idx))])))))
 
 (defn parse-rule-file
   "Parse a rule markdown file into a Clojure map.
@@ -108,4 +112,4 @@
           (reset! reason (-> line (str/replace #"^.*reason:\s*" "") str/trim
                               (str/replace #"^\"" "") (str/replace #"\"$" "")))))
       ;; Attach reason to all directives
-      (mapv #(assoc % :reason (or @reason (str "Blocked by rule: " "unknown"))) @directives))))
+      (mapv #(assoc % :reason (or @reason "Blocked by rule")) @directives))))

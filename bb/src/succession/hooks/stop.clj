@@ -15,7 +15,8 @@
             [clojure.string :as str]
             [succession.resolve :as resolve]
             [succession.yaml :as yaml]
-            [succession.effectiveness :as eff]))
+            [succession.effectiveness :as eff]
+            [succession.activity :as activity]))
 
 ;; --- Config ---
 
@@ -119,6 +120,97 @@
               (when (contains? valid-ids cleaned)
                 cleaned))))))))
 
+;; --- Extraction helpers ---
+
+(defn extract-transcript-window
+  "Read a window of the transcript file, extracting USER/ASSISTANT messages.
+   Returns a string of formatted messages, capped at cap-bytes."
+  [transcript-path start-offset cap-bytes]
+  (let [content (slurp transcript-path)
+        window (subs content (min start-offset (count content)))
+        window (subs window 0 (min (count window) cap-bytes))
+        lines (str/split-lines window)]
+    (->> lines
+         (keep (fn [line]
+                 (try
+                   (let [entry (json/parse-string line true)]
+                     (when (#{"human" "assistant"} (:type entry))
+                       (let [content-val (get-in entry [:message :content])
+                             text (if (vector? content-val)
+                                    (str/join " " (keep #(when (= "text" (:type %)) (:text %)) content-val))
+                                    (str content-val))]
+                         (str (if (= "human" (:type entry)) "USER: " "ASSISTANT: ")
+                              (subs text 0 (min (count text) 2000))))))
+                   (catch Exception _ nil))))
+         (str/join "\n")
+         (#(subs % 0 (min (count %) 100000))))))
+
+(defn load-existing-rule-summaries
+  "Load existing rule IDs and summaries for deduplication context."
+  [& dirs]
+  (vec
+   (for [dir dirs
+         :when (and dir (fs/exists? dir))
+         f (fs/glob dir "*.md")
+         :let [rule (yaml/parse-rule-file (str f))]
+         :when rule]
+     (str "- " (:id rule) ": "
+          (first (str/split-lines (or (:body rule) "")))))))
+
+(defn build-extraction-prompt
+  "Build the LLM prompt for pattern extraction."
+  [transcript-window existing-rules]
+  (str "You are a behavioral pattern extraction system. Read this conversation transcript and identify patterns in three types:
+
+1. CORRECTIONS — the user told the agent to stop doing something or do something differently
+2. CONFIRMATIONS — the user validated a non-obvious choice the agent made
+3. PREFERENCES — how the user wants to work (tone, process, style)
+
+For each pattern, determine the enforcement tier:
+- \"mechanical\" — can be enforced by blocking a specific tool or bash pattern (e.g., \"never force-push\" → block 'git push --force')
+- \"semantic\" — requires LLM judgment to enforce (e.g., \"use Edit instead of sed for source files\")
+- \"advisory\" — can only be reminded, not enforced (e.g., \"prefer concise responses\")
+
+For each pattern, classify into one of four knowledge categories:
+- \"strategy\" — how the agent approaches problems (workflow patterns, methodologies)
+- \"failure-inheritance\" — patterns of failure to avoid (anti-patterns, things that went wrong)
+- \"relational-calibration\" — communication style adaptation (tone, verbosity, explanation depth)
+- \"meta-cognition\" — which heuristics proved reliable vs. which sounded plausible but failed
+
+EXISTING RULES (do not duplicate):
+" (str/join "\n" existing-rules) "
+
+RECENT TRANSCRIPT:
+" transcript-window "
+
+Output ONLY valid JSON (no markdown fencing):
+{
+  \"rules\": [
+    {
+      \"id\": \"kebab-case-id (e.g., no-force-push, prefer-edit-over-sed)\",
+      \"enforcement\": \"mechanical|semantic|advisory\",
+      \"category\": \"strategy|failure-inheritance|relational-calibration|meta-cognition\",
+      \"type\": \"correction|confirmation|preference\",
+      \"scope\": \"global|project\",
+      \"summary\": \"one-line rule statement\",
+      \"evidence\": \"brief quote from transcript\",
+      \"enforcement_directives\": [
+        \"block_bash_pattern: regex_pattern\",
+        \"block_tool: ToolName\",
+        \"require_prior_read: true\",
+        \"reason: human-readable explanation\"
+      ]
+    }
+  ]
+}
+
+Rules:
+- Only extract patterns the user explicitly expressed or clearly demonstrated
+- Do not infer preferences from silence or routine acknowledgments
+- enforcement_directives are ONLY for mechanical rules — omit for semantic/advisory
+- If no patterns found, return {\"rules\": []}
+- Do not duplicate rules already in EXISTING RULES above"))
+
 ;; --- Main ---
 
 (defn -main []
@@ -135,6 +227,7 @@
         ;; State files
         turn-file (str "/tmp/.succession-turns-" session_id)
         correction-flag-file (str "/tmp/.succession-correction-flag-" session_id)
+        extract-offset-file (str "/tmp/.succession-extract-offset-" session_id)
 
         ;; Increment turn counter
         turn-count (if (fs/exists? turn-file)
@@ -156,37 +249,158 @@
       ;; ========================================
       (let [recent-msgs (read-recent-user-messages transcript_path)]
         (when (tier1-keyword-match? recent-msgs)
-          (let [latest-msg (last recent-msgs)
-                verdict (tier2-confirm-correction (subs latest-msg 0 (min 500 (count latest-msg)))
-                                                  correction-model-id)]
-            (when (= :yes verdict)
-              ;; Semantic violation matching
-              (let [rule-summaries
-                    (vec (for [dir [rules-dir (str global-dir "/rules")]
-                               :when (fs/exists? dir)
-                               f (fs/glob dir "*.md")
-                               :let [rule (yaml/parse-rule-file (str f))]
-                               :when rule]
-                           [(:id rule) (first (str/split-lines (or (:body rule) "")))]))]
+          (let [latest-msg (last recent-msgs)]
+            ;; Log tier1 match
+            (try (activity/log-activity-event! "correction_tier1" cwd session_id
+                   {:turn turn-count
+                    :user_msg_snippet (subs latest-msg 0 (min 100 (count latest-msg)))})
+                 (catch Exception _))
 
-                (if-let [matched (match-existing-rule latest-msg rule-summaries correction-model-id)]
-                  (do
-                    (eff/log-event! "rule_violated"
-                                    {:rule_id matched
-                                     :context latest-msg
-                                     :detected_by "correction-matching"
-                                     :session session_id})
-                    (eff/log-event! "correction_matched"
-                                    {:rule_id matched
-                                     :user_msg (subs latest-msg 0 (min 200 (count latest-msg)))
-                                     :session session_id})
-                    (reset! notification-msg (str "Matched correction to existing rule: " matched)))
-                  (do
-                    (spit correction-flag-file "1")
-                    (reset! notification-msg "Noticed a correction, will learn from it soon"))))))))
+            (let [verdict (tier2-confirm-correction (subs latest-msg 0 (min 500 (count latest-msg)))
+                                                    correction-model-id)]
+              ;; Log tier2 result
+              (try (activity/log-activity-event! "correction_tier2" cwd session_id
+                     {:turn turn-count
+                      :verdict (if verdict (name verdict) "UNKNOWN")})
+                   (catch Exception _))
+
+              (when (= :yes verdict)
+                ;; Semantic violation matching
+                (let [rule-summaries
+                      (vec (for [dir [rules-dir (str global-dir "/rules")]
+                                 :when (fs/exists? dir)
+                                 f (fs/glob dir "*.md")
+                                 :let [rule (yaml/parse-rule-file (str f))]
+                                 :when rule]
+                             [(:id rule) (first (str/split-lines (or (:body rule) "")))]))]
+
+                  (if-let [matched (match-existing-rule latest-msg rule-summaries correction-model-id)]
+                    (do
+                      (eff/log-event! "rule_violated"
+                                      {:rule_id matched
+                                       :context latest-msg
+                                       :detected_by "correction-matching"
+                                       :session session_id})
+                      (eff/log-event! "correction_matched"
+                                      {:rule_id matched
+                                       :user_msg (subs latest-msg 0 (min 200 (count latest-msg)))
+                                       :session session_id})
+                      (reset! notification-msg (str "Matched correction to existing rule: " matched)))
+                    (do
+                      (spit correction-flag-file "1")
+                      (reset! notification-msg "Noticed a correction, will learn from it soon")))))))))
 
       ;; ========================================
-      ;; PHASE 2: ADVISORY RE-INJECTION
+      ;; PHASE 2: PATTERN EXTRACTION → RULE FILES
+      ;; Runs when transcript has grown enough (or sooner if correction flagged)
+      ;; ========================================
+      (let [transcript-size (fs/size transcript_path)
+            last-extract-offset (if (fs/exists? extract-offset-file)
+                                  (parse-long (str/trim (slurp extract-offset-file)))
+                                  0)
+            transcript-growth (- transcript-size last-extract-offset)
+            extract-threshold (:extractEveryKTokens config 80000)
+            ;; Reduce threshold 5x if a correction was recently flagged
+            effective-threshold (if (fs/exists? correction-flag-file)
+                                  (quot extract-threshold 5)
+                                  extract-threshold)]
+
+        (when (>= transcript-growth effective-threshold)
+          (let [window-start (max last-extract-offset
+                                  (- transcript-size 204800))
+                ;; Read transcript window and extract user/assistant messages
+                transcript-window (extract-transcript-window transcript_path window-start 204800)]
+
+            (if (str/blank? transcript-window)
+              ;; Empty window — just update offset
+              (spit extract-offset-file (str transcript-size))
+              ;; Run extraction
+              (let [existing-rules (load-existing-rule-summaries rules-dir (str global-dir "/rules"))
+                    extraction-model-id (get model-ids (:model config "sonnet") "claude-sonnet-4-6")
+                    extract-prompt (build-extraction-prompt transcript-window existing-rules)
+                    raw-result (call-claude extract-prompt extraction-model-id 60)
+                    ;; Strip markdown fencing if present
+                    cleaned (when raw-result
+                              (-> raw-result
+                                  (str/replace #"(?m)^```json?\s*$" "")
+                                  (str/replace #"(?m)^```\s*$" "")
+                                  str/trim))
+                    parsed (try
+                             (when cleaned (json/parse-string cleaned true))
+                             (catch Exception _
+                               (eff/log-event! "extraction_failed"
+                                                {:error "Invalid JSON from extraction"
+                                                 :session session_id})
+                               (try (activity/log-activity-event! "extraction_failed" cwd session_id
+                                      {:turn turn-count :error "Invalid JSON from extraction"})
+                                    (catch Exception _))
+                               nil))]
+
+                ;; Write extracted rules
+                (when-let [rules-list (seq (:rules parsed))]
+                  (let [rules-written (atom 0)]
+                    (doseq [rule rules-list]
+                      (let [{:keys [id enforcement category type scope summary evidence
+                                    enforcement_directives]} rule
+                            target-dir (if (= "global" scope)
+                                         (str global-dir "/rules")
+                                         rules-dir)
+                            rule-file (str target-dir "/" id ".md")]
+                        ;; Skip if rule already exists
+                        (when-not (fs/exists? rule-file)
+                          (fs/create-dirs target-dir)
+                          (let [directives-section (when (and (= "mechanical" enforcement)
+                                                             (seq enforcement_directives))
+                                                    (str "\n\n## Enforcement\n"
+                                                         (str/join "\n"
+                                                                   (map #(str "- " %) enforcement_directives))))
+                                rule-map {:id id
+                                          :scope (or scope "project")
+                                          :enforcement enforcement
+                                          :category (or category "strategy")
+                                          :type type
+                                          :source {:session session_id
+                                                   :timestamp (str (java.time.Instant/now))
+                                                   :evidence (or evidence "")}
+                                          :overrides []
+                                          :enabled true
+                                          :effectiveness {:times-followed 0
+                                                          :times-violated 0
+                                                          :times-overridden 0
+                                                          :last-evaluated nil}
+                                          :body (str (or summary "")
+                                                     (or directives-section ""))}]
+                            (yaml/write-rule-file rule-file rule-map)
+                            (swap! rules-written inc)
+
+                            ;; Log rule creation
+                            (eff/log-event! "rule_created"
+                                            {:rule_id id
+                                             :category (or category "strategy")
+                                             :source "extraction"
+                                             :session session_id})))))
+
+                    (when (pos? @rules-written)
+                      (reset! notification-msg
+                              (str (when @notification-msg (str @notification-msg "; "))
+                                   "Extracted " @rules-written " new rule(s)"))
+                      ;; Log extraction event
+                      (try (activity/log-activity-event! "extraction" cwd session_id
+                             {:turn turn-count
+                              :rules_written @rules-written
+                              :total_found (count rules-list)
+                              :model extraction-model-id})
+                           (catch Exception _))
+                      ;; Re-compile rules after extraction
+                      (try (resolve/resolve-and-compile! cwd) (catch Exception _)))))
+
+                ;; Update offset and consume correction flag
+                (spit extract-offset-file (str transcript-size))
+                (when (fs/exists? correction-flag-file)
+                  (fs/delete correction-flag-file)))))))
+
+      ;; ========================================
+      ;; PHASE 3: ADVISORY RE-INJECTION
       ;; ========================================
       (when (zero? (mod turn-count reinjection-interval))
         (let [advisory-file (str compiled-dir "/advisory-summary.md")]

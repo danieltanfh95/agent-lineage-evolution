@@ -8,12 +8,13 @@
   (:require [cheshire.core :as json]
             [babashka.fs :as fs]
             [clojure.string :as str]
-            [succession.resolve :as resolve]))
+            [succession.resolve :as resolve]
+            [succession.activity :as activity]))
 
 (defn load-skills-from
   "Copy skills from a skills directory into .claude/skills/ for Claude Code to pick up.
    Returns set of loaded skill names."
-  [skills-dir cwd loaded]
+  [loaded skills-dir cwd]
   (if (fs/exists? skills-dir)
     (reduce (fn [loaded skill-dir]
               (let [skill-name (str (fs/file-name skill-dir))
@@ -46,11 +47,14 @@
       (fs/create-dirs (str succession-dir "/compiled"))
       (fs/create-dirs (str succession-dir "/log"))
 
-      ;; Phase 1: Compile rules
-      (try (resolve/resolve-and-compile! cwd) (catch Exception _))
+      ;; Log rotation
+      (try (activity/rotate-log-if-needed! cwd) (catch Exception _))
 
-      ;; Phase 2: Assemble additionalContext
-      (let [compiled-dir (str succession-dir "/compiled")
+      ;; Phase 1: Compile rules
+      (let [compile-result (try (resolve/resolve-and-compile! cwd) (catch Exception _ nil))
+
+            ;; Phase 2: Assemble additionalContext
+            compiled-dir (str succession-dir "/compiled")
             parts (atom [])
 
             advisory-file (str compiled-dir "/advisory-summary.md")
@@ -78,6 +82,13 @@
                           "Higher priority numbers win among rules at the same scope level."))
 
             assembled (str/join "\n" @parts)]
+
+        ;; Log session_start event
+        (try
+          (activity/log-activity-event! "session_start" cwd session_id
+            {:mechanical_rules (get compile-result :mechanical 0)
+             :skills_loaded (str/join "|" loaded-skills)})
+          (catch Exception _))
 
         (when (seq assembled)
           (println (json/generate-string

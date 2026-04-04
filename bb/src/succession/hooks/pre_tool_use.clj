@@ -55,23 +55,21 @@
            :reason (str "Succession: " (:reason (first read-rules)))
            :source (:source (first read-rules))})))))
 
-(defn -main []
-  (let [input (json/parse-string (slurp *in*) true)
-        {:keys [cwd tool_name tool_input session_id transcript_path]} input
+(defn run
+  "Process a pre-tool-use input map. Returns {:decision \"block\" :reason \"...\"} or nil.
+   Side effects: logs rule_violated/rule_followed to meta-cognition log."
+  [input]
+  (let [{:keys [cwd tool_name tool_input session_id transcript_path]} input
         rules (load-tool-rules cwd)]
     (when rules
       (let [result (or
-                    ;; Check block_tool
                     (check-block-tool rules tool_name)
-                    ;; Check block_bash_pattern (Bash tool only)
                     (when (= "Bash" tool_name)
                       (check-bash-pattern rules (:command tool_input "")))
-                    ;; Check require_prior_read (Edit tool only)
                     (when (= "Edit" tool_name)
                       (check-require-prior-read rules tool_input transcript_path)))]
         (if result
           (do
-            ;; Log violation (async-ish — fire and forget)
             (try
               (eff/log-event! "rule_violated"
                               {:rule_id (:source result "unknown")
@@ -79,16 +77,23 @@
                                :detected_by "pre-tool-use"
                                :session (or session_id "unknown")})
               (catch Exception _))
-            (println (json/generate-string (select-keys result [:decision :reason])))
-            (System/exit 0))
-          ;; All passed — log rule_followed for each rule (non-blocking)
-          (try
-            (doseq [rule rules]
-              (eff/log-event! "rule_followed"
-                              {:rule_id (:source rule)
-                               :detected_by "pre-tool-use"
-                               :session (or session_id "unknown")}))
-            (catch Exception _)))))))
+            (select-keys result [:decision :reason]))
+          (do
+            (try
+              (doseq [rule rules]
+                (eff/log-event! "rule_followed"
+                                {:rule_id (:source rule)
+                                 :detected_by "pre-tool-use"
+                                 :session (or session_id "unknown")}))
+              (catch Exception _))
+            nil))))))
+
+(defn -main []
+  (let [input (json/parse-string (slurp *in*) true)
+        result (run input)]
+    (when result
+      (println (json/generate-string result))
+      (System/exit 0))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (-main))

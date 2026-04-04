@@ -3,6 +3,8 @@
    Usage: bb -m succession.core <command> [args...]"
   (:require [succession.resolve :as resolve]
             [succession.effectiveness :as eff]
+            [succession.extract :as extract]
+            [succession.skill :as skill]
             [cheshire.core :as json]))
 
 (defn -main [& args]
@@ -42,9 +44,17 @@
                                  (str " — followed:" (get eff :times-followed 0)
                                       " violated:" (get eff :times-violated 0))))))))))
 
+      "extract"
+      (apply extract/-main (rest args))
+
+      "skill-extract"
+      (apply skill/-main (rest args))
+
       (do
         (println "Usage: bb -m succession.core <command>")
         (println "Commands:")
         (println "  resolve [project-dir]        — Run cascade resolution")
         (println "  effectiveness [project-dir]  — Show effectiveness report")
+        (println "  extract [options] [path]     — Retrospective rule extraction")
+        (println "  skill-extract [options] [path] — Skill bundle extraction")
         (System/exit 1)))))
