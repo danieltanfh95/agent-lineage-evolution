@@ -33,6 +33,7 @@
     loaded))
 
 (defn -main []
+  (try
   (let [input (json/parse-string (slurp *in*) true)
         {:keys [cwd session_id]} input
         global-dir (str (System/getProperty "user.home") "/.succession")
@@ -94,7 +95,11 @@
           (println (json/generate-string
                     {:hookSpecificOutput
                      {:hookEventName "SessionStart"
-                      :additionalContext assembled}})))))))
+                      :additionalContext assembled}}))))))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "Succession session_start hook error: " (.getMessage e))))
+      (System/exit 2))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (-main))

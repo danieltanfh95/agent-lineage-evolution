@@ -89,11 +89,16 @@
             nil))))))
 
 (defn -main []
-  (let [input (json/parse-string (slurp *in*) true)
-        result (run input)]
-    (when result
-      (println (json/generate-string result))
-      (System/exit 0))))
+  (try
+    (let [input (json/parse-string (slurp *in*) true)
+          result (run input)]
+      (when result
+        (println (json/generate-string result))
+        (System/exit 0)))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "Succession pre_tool_use hook error: " (.getMessage e))))
+      (System/exit 2))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (-main))

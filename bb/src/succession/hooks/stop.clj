@@ -214,6 +214,7 @@ Rules:
 ;; --- Main ---
 
 (defn -main []
+  (try
   (let [input (json/parse-string (slurp *in*) true)
         {:keys [cwd session_id transcript_path]} input
         config (load-config)
@@ -424,7 +425,11 @@ Rules:
                            msg (str "\n\n[Succession] " msg))]
             (println (json/generate-string
                       {:hookSpecificOutput
-                       {:additionalContext full-ctx}}))))))))
+                       {:additionalContext full-ctx}})))))))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "Succession stop hook error: " (.getMessage e))))
+      (System/exit 2))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (-main))
