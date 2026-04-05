@@ -73,17 +73,20 @@
                         "\n")))))
 
 (defn compile-advisory-summary
-  "Compile advisory + semantic rules into a reminder summary."
-  [advisory-rules semantic-rules]
-  (str "# Active Rules (Reminder)\n\n"
-       "The following rules are currently active. Follow them in your responses.\n\n"
+  "Compile all rules into a strong advisory summary matching CLAUDE.md framing."
+  [all-rules]
+  (str "## MANDATORY BEHAVIORAL RULES — YOU MUST FOLLOW THESE\n\n"
+       "IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\n"
        (str/join "\n"
-                 (for [rule (concat advisory-rules semantic-rules)]
+                 (for [rule all-rules]
                    (let [body-summary (-> (:body rule "")
+                                          (str/replace #"## Enforcement[\s\S]*" "")
+                                          str/trim
                                           str/split-lines
                                           (->> (take 3)
                                                (str/join " ")))]
-                     (str "- **" (:id rule) "**: " body-summary))))))
+                     (str "- " body-summary))))
+       "\n\nThese rules are mandatory. Every response must demonstrate compliance."))
 
 (defn review-candidates
   "Analyze effectiveness and return rules that need review or promotion."
@@ -130,7 +133,7 @@
 
         tool-rules (compile-tool-rules mechanical)
         semantic-md (compile-semantic-rules semantic)
-        advisory-md (compile-advisory-summary advisory semantic)
+        advisory-md (compile-advisory-summary resolved)
         candidates (review-candidates resolved)]
 
     ;; Write artifacts

@@ -61,8 +61,7 @@
             advisory-file (str compiled-dir "/advisory-summary.md")
             _ (when (and (fs/exists? advisory-file)
                          (pos? (fs/size advisory-file)))
-                (swap! parts conj (str "\n--- SUCCESSION: ACTIVE RULES ---\n"
-                                       (slurp advisory-file))))
+                (swap! parts conj (slurp advisory-file))))
 
             semantic-file (str compiled-dir "/semantic-rules.md")
             _ (when (and (fs/exists? semantic-file)

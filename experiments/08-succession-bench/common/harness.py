@@ -47,6 +47,7 @@ class TurnResult:
 class SessionConfig:
     """Configuration for a benchmark session."""
     model: str = "haiku"
+    cli_binary: str = "claude"  # 'claude' or 'sheath' (for OpenRouter/DeepSeek)
     # Project directory (temp dir with .claude/CLAUDE.md, .succession/, etc.)
     project_dir: Optional[str] = None
     # Extra CLI flags
@@ -56,7 +57,7 @@ class SessionConfig:
     system_prompt_file: Optional[str] = None  # --system-prompt-file
     append_system_prompt: Optional[str] = None  # --append-system-prompt
     allowed_tools: Optional[str] = None  # --allowed-tools
-    permission_mode: str = "bypassPermissions"  # safe for benchmarks
+    permission_mode: str = "bypassPermissions"  # 'bypassPermissions' for claude, 'dontAsk' for sheath
     padding_tokens: int = 0  # tokens of filler per turn, 0 = no padding
     timeout_s: int = 600
     dry_run: bool = False
@@ -131,7 +132,7 @@ def build_cmd(prompt: str, config: SessionConfig,
     model_id = MODEL_IDS.get(config.model, config.model)
 
     cmd = [
-        "claude", "-p",
+        config.cli_binary, "-p",
         "--model", model_id,
         "--output-format", "json",
         "--permission-mode", config.permission_mode,
@@ -215,11 +216,16 @@ def run_turn(prompt: str, turn: int, config: SessionConfig,
         log(f"      [run_turn {turn}] stderr: {result.stderr[:500]}")
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"claude -p failed (exit {result.returncode}) on turn {turn}:\n"
-            f"stderr: {result.stderr[:500]}\n"
-            f"cmd: {' '.join(cmd)}"
-        )
+        # Try parsing output anyway — sheath/openrouter may exit non-zero
+        # but still produce valid JSON (e.g. on model errors, timeouts)
+        if result.stdout.strip():
+            log(f"      [run_turn {turn}] WARNING: non-zero exit ({result.returncode}) but stdout present, attempting parse")
+        else:
+            raise RuntimeError(
+                f"claude -p failed (exit {result.returncode}) on turn {turn}:\n"
+                f"stderr: {result.stderr[:500]}\n"
+                f"cmd: {' '.join(cmd)}"
+            )
 
     try:
         parsed = parse_claude_json(result.stdout)
