@@ -1,5 +1,7 @@
 # Succession — Behavioral Pattern Extraction for AI Coding Agents
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19437321.svg)](https://doi.org/10.5281/zenodo.19437321)
+
 Succession detects behavioral corrections from your conversations with AI coding agents and turns them into persistent, enforceable rules. It solves the problem of AI agents forgetting your preferences between sessions and within long sessions (instruction drift at ~150k tokens).
 
 Successor to [SOUL](docs/archive/soul-framework-whitepaper.md) and [ALE](docs/ale-blog-post-2025.md), focusing on behavioral pattern extraction over full agent governance.
