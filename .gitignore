@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 *.swp
 *.swo
+.plans/
+.clj-kondo/
+.lsp/

@@ -1,23 +1,27 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
-title: "SOUL: Structured Oversight of Unified Lineage"
-abstract: "A governance framework for persistent agent identity in Claude Code. SOUL provides rolling knowledge compaction, conscience-based audit loops, human-authored invariants, and hierarchical genome inheritance to address LLM agent memory degradation."
+title: "Succession: Guided Behavioral Evolution for LLM Agents"
+abstract: "A three-generation framework for behavioral continuity in LLM coding agents. Succession detects user corrections organically, extracts them into persistent rule files with three enforcement tiers (mechanical, semantic, advisory), and enforces them across sessions — immune to instruction drift. On SuccessionBench, instruction drift is measurable at 150k tokens, corrections degrade at depth, and periodic re-injection is the most effective mitigation."
 authors:
   - family-names: Tan
-    given-names: Daniel
+    given-names: Daniel Fook Hao
     orcid: "https://orcid.org/0009-0008-2267-7780"
     affiliation: "Independent Researcher"
-version: 1.0.0
-date-released: "2026-03-28"
+  - family-names: Chen
+    given-names: Moki Meng Jin
+    affiliation: "Independent Researcher"
+version: 2.0.0
+date-released: "2026-04-06"
 license: MIT
 repository-code: "https://github.com/danieltanfh95/agent-lineage-evolution"
 keywords:
   - LLM agents
-  - agent governance
-  - memory management
+  - behavioral enforcement
+  - instruction drift
+  - agent succession
   - Claude Code
-  - knowledge compaction
+  - behavioral evolution
 references:
   - type: article
     title: "Agent Lineage Evolution: A Novel Framework for Managing LLM Agent Degradation"
@@ -26,4 +30,12 @@ references:
         given-names: Daniel
     year: 2025
     url: "https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation"
-    notes: "Conceptual predecessor to SOUL, demonstrating generational succession for LLM agents via manual prompt engineering."
+    notes: "Generation 1: episodic succession via manual meta-prompts."
+  - type: software
+    title: "SOUL: Structured Oversight of Unified Lineage"
+    authors:
+      - family-names: Tan
+        given-names: Daniel
+    year: 2026
+    url: "https://github.com/danieltanfh95/agent-lineage-evolution"
+    notes: "Generation 2: continuous governance with conscience audit loops and rolling compaction."

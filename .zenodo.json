@@ -1,24 +1,27 @@
 {
-  "title": "SOUL: Structured Oversight of Unified Lineage",
-  "description": "A governance framework for persistent agent identity in Claude Code. SOUL provides rolling knowledge compaction, conscience-based audit loops, human-authored invariants, and hierarchical genome inheritance to address LLM agent memory degradation.",
+  "title": "Succession: Guided Behavioral Evolution for LLM Agents",
+  "description": "A three-generation framework for behavioral continuity in LLM coding agents. Succession detects user corrections organically, extracts them into persistent rule files with three enforcement tiers (mechanical, semantic, advisory), and enforces them across sessions — immune to instruction drift.",
   "upload_type": "software",
   "access_right": "open",
   "license": "MIT",
   "creators": [
     {
-      "name": "Tan, Daniel",
+      "name": "Tan, Daniel Fook Hao",
       "orcid": "0009-0008-2267-7780",
+      "affiliation": "Independent Researcher"
+    },
+    {
+      "name": "Chen, Moki Meng Jin",
       "affiliation": "Independent Researcher"
     }
   ],
   "keywords": [
     "LLM agents",
-    "agent governance",
-    "memory management",
+    "behavioral enforcement",
+    "instruction drift",
+    "agent succession",
     "Claude Code",
-    "knowledge compaction",
-    "context poisoning",
-    "agent identity"
+    "behavioral evolution"
   ],
   "related_identifiers": [
     {
@@ -27,5 +30,5 @@
       "resource_type": "publication-article"
     }
   ],
-  "version": "1.0.0"
+  "version": "2.0.0"
 }
