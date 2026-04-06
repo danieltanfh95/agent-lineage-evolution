@@ -63,6 +63,108 @@ class SessionConfig:
     dry_run: bool = False
 
 
+def _camel_to_snake(name: str) -> str:
+    """Convert camelCase to snake_case (e.g. filePath → file_path)."""
+    import re as _re
+    return _re.sub(r'([a-z])([A-Z])', r'\1_\2', name).lower()
+
+
+# opencode uses lowercase tool names; scorers expect PascalCase
+_OPENCODE_TOOL_MAP = {
+    'read': 'Read', 'edit': 'Edit', 'write': 'Write', 'bash': 'Bash',
+    'glob': 'Glob', 'grep': 'Grep', 'agent': 'Agent', 'apply_patch': 'ApplyPatch',
+    'multiedit': 'MultiEdit',
+}
+
+
+def parse_opencode_events(stdout: str) -> dict:
+    """Parse streaming JSON events from `opencode run --format json`.
+
+    Each line is a separate JSON object with types:
+    step_start, text, tool_use, step_finish, error.
+
+    Returns dict with same shape as parse_claude_json() for compatibility.
+    """
+    result = {
+        'response': '',
+        'session_id': '',
+        'usage': {'input_tokens': 0, 'output_tokens': 0,
+                  'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0},
+        'tool_uses': [],
+        'full_text': '',
+        'hook_blocked_tools': [],
+        'tool_uses_executed': [],
+        'tool_uses_blocked': [],
+    }
+
+    for line in stdout.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get('type', '')
+        part = event.get('part', {})
+
+        # Extract session ID from first event
+        if not result['session_id']:
+            sid = event.get('sessionID', '')
+            if sid:
+                result['session_id'] = sid
+
+        if event_type == 'text':
+            text = part.get('text', '')
+            result['full_text'] += text
+            result['response'] += text
+
+        elif event_type == 'tool_use':
+            state = part.get('state', {})
+            # Normalize opencode lowercase tool names to PascalCase (read→Read, edit→Edit, etc.)
+            raw_tool = part.get('tool', '')
+            tool_name = _OPENCODE_TOOL_MAP.get(raw_tool, raw_tool)
+            # Normalize opencode camelCase input keys to snake_case
+            raw_input = state.get('input', {})
+            normalized_input = {_camel_to_snake(k): v for k, v in raw_input.items()}
+            tool_entry = {
+                'id': part.get('callID', ''),
+                'tool': tool_name,
+                'input': normalized_input,
+            }
+            result['tool_uses'].append(tool_entry)
+
+            status = state.get('status', '')
+            error = state.get('error', '')
+            if status == 'error' and ('succession' in error.lower() or 'hook' in error.lower()):
+                result['hook_blocked_tools'].append({
+                    'tool_use_id': tool_entry['id'],
+                    'error': error[:200],
+                })
+                result['tool_uses_blocked'].append(tool_entry)
+            elif status == 'error':
+                # Permission rejected or other error — still count as executed attempt
+                result['tool_uses_executed'].append(tool_entry)
+            else:
+                result['tool_uses_executed'].append(tool_entry)
+
+        elif event_type == 'step_finish':
+            tokens = part.get('tokens', {})
+            result['usage']['input_tokens'] += tokens.get('input', 0)
+            result['usage']['output_tokens'] += tokens.get('output', 0)
+            cache = tokens.get('cache', {})
+            result['usage']['cache_creation_input_tokens'] += cache.get('write', 0)
+            result['usage']['cache_read_input_tokens'] += cache.get('read', 0)
+
+        elif event_type == 'error':
+            err = event.get('error', {})
+            err_data = err.get('data', {})
+            result['response'] += f'[ERROR] {err_data.get("message", str(err))}'
+
+    return result
+
+
 def parse_claude_json(stdout: str) -> dict:
     """Parse the JSON array output from `claude -p --output-format json`.
 
@@ -124,13 +226,37 @@ def parse_claude_json(stdout: str) -> dict:
     return result
 
 
+def _is_opencode(cli_binary: str) -> bool:
+    return 'opencode' in cli_binary
+
+
 def build_cmd(prompt: str, config: SessionConfig,
               session_id: Optional[str] = None) -> list[str]:
-    """Build the `claude` CLI command for a single turn."""
-    from .config import MODEL_IDS
+    """Build the CLI command for a single turn.
 
-    model_id = MODEL_IDS.get(config.model, config.model)
+    Supports claude, sheath (claude-compatible), and opencode.
+    """
+    from .config import MODEL_IDS, OPENCODE_MODEL_IDS
 
+    if _is_opencode(config.cli_binary):
+        model_id = OPENCODE_MODEL_IDS.get(config.model, config.model)
+    else:
+        model_id = MODEL_IDS.get(config.model, config.model)
+
+    if _is_opencode(config.cli_binary):
+        cmd = [
+            config.cli_binary, 'run',
+            '--format', 'json',
+            '-m', model_id,
+        ]
+        if config.project_dir:
+            cmd.extend(['--dir', config.project_dir])
+        if session_id:
+            cmd.extend(['-s', session_id])
+        # No --permission-mode — handled by opencode.json in project dir
+        return cmd
+
+    # claude / sheath path
     cmd = [
         config.cli_binary, "-p",
         "--model", model_id,
@@ -140,9 +266,6 @@ def build_cmd(prompt: str, config: SessionConfig,
 
     if session_id:
         cmd.extend(["--resume", session_id])
-    else:
-        # First turn — no session to resume
-        pass
 
     if config.system_prompt:
         cmd.extend(["--system-prompt", config.system_prompt])
@@ -195,6 +318,14 @@ def run_turn(prompt: str, turn: int, config: SessionConfig,
     if config.project_dir:
         env["PWD"] = config.project_dir
 
+    # opencode takes prompt as positional arg; claude/sheath take it via stdin
+    use_opencode = _is_opencode(config.cli_binary)
+    if use_opencode:
+        cmd.append(prompt)
+        stdin_data = None
+    else:
+        stdin_data = prompt
+
     log(f"      [run_turn {turn}] cmd: {' '.join(cmd[:6])}... prompt_len={len(prompt)}")
     if session_id:
         log(f"      [run_turn {turn}] resuming session {session_id}")
@@ -202,7 +333,7 @@ def run_turn(prompt: str, turn: int, config: SessionConfig,
     start = time.time()
     result = subprocess.run(
         cmd,
-        input=prompt,
+        input=stdin_data,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -227,8 +358,9 @@ def run_turn(prompt: str, turn: int, config: SessionConfig,
                 f"cmd: {' '.join(cmd)}"
             )
 
+    parse_fn = parse_opencode_events if _is_opencode(config.cli_binary) else parse_claude_json
     try:
-        parsed = parse_claude_json(result.stdout)
+        parsed = parse_fn(result.stdout)
     except json.JSONDecodeError as e:
         # Truncated or malformed JSON — return partial result
         log(f"  WARNING: JSON parse error on turn {turn}: {e}")
@@ -304,10 +436,12 @@ class ProjectFixture:
 
     def __init__(self, claude_md_content: Optional[str] = None,
                  succession_rules: Optional[list[dict]] = None,
-                 source_files: Optional[dict[str, str]] = None):
+                 source_files: Optional[dict[str, str]] = None,
+                 cli_binary: str = 'claude'):
         self.claude_md_content = claude_md_content
         self.succession_rules = succession_rules or []
         self.source_files = source_files or {}
+        self.cli_binary = cli_binary
         self.dir = None
 
     def __enter__(self):
@@ -341,9 +475,12 @@ class ProjectFixture:
         claude_dir = project / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
 
-        # .claude/CLAUDE.md
+        # .claude/CLAUDE.md (for claude/sheath)
         if self.claude_md_content:
             (claude_dir / "CLAUDE.md").write_text(self.claude_md_content)
+            # opencode looks for AGENTS.md at project root (not .claude/)
+            if _is_opencode(self.cli_binary):
+                (project / "AGENTS.md").write_text(self.claude_md_content)
 
         # .succession/rules/
         if self.succession_rules:
@@ -410,6 +547,12 @@ class ProjectFixture:
                 }
             }
             (claude_dir / "settings.json").write_text(json.dumps(settings, indent=2))
+
+        # opencode permission config (auto-approve all tool calls)
+        if _is_opencode(self.cli_binary):
+            (project / 'opencode.json').write_text(
+                json.dumps({'permission': 'allow'}, indent=2)
+            )
 
         # Source files for realistic coding tasks
         for path, content in self.source_files.items():

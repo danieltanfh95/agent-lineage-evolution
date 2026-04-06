@@ -4,10 +4,24 @@ MODEL_IDS = {
     'haiku': 'claude-haiku-4-5-20251001',
     'sonnet': 'claude-sonnet-4-6',
     'opus': 'claude-opus-4-6',
-    # OpenRouter models (use with cli_binary='sheath')
+    # OpenRouter models — sheath uses provider/model, opencode uses openrouter/provider/model
     'mimo': 'xiaomi/mimo-v2-pro',
     'deepseek': 'deepseek/deepseek-v3.2',
     'glm5': 'z-ai/glm-5',
+}
+
+# opencode model IDs — uses provider/model format
+# Custom providers (mimo token plan) use their own prefix;
+# OpenRouter models get openrouter/ prefix; Claude gets anthropic/
+OPENCODE_MODEL_IDS = {
+    'haiku': 'anthropic/claude-haiku-4-5-20251001',
+    'sonnet': 'anthropic/claude-sonnet-4-6',
+    'opus': 'anthropic/claude-opus-4-6',
+    # Mimo via direct token plan (not OpenRouter)
+    'mimo': 'mimo/mimo-v2-pro',
+    # Other open models via OpenRouter
+    'deepseek': 'openrouter/deepseek/deepseek-v3.2',
+    'glm5': 'openrouter/z-ai/glm-5',
 }
 
 # Approximate cost per 1M tokens (input/output) for budgeting

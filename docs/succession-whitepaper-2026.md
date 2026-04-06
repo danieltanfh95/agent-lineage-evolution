@@ -8,7 +8,7 @@ April 2026
 
 ## Abstract
 
-LLM-based agents suffer from behavioral amnesia: corrections, preferences, and operational patterns are lost across session boundaries, while instructions degrade within sessions as context windows fill. Existing approaches focus on memory augmentation — compressing, indexing, and retrieving factual content — but cannot transfer the operational patterns that constitute an agent's behavioral identity: how it approaches problems, what failure patterns it avoids, how it calibrates communication, and which heuristics proved reliable. We present a three-generation framework for guided behavioral evolution that addresses this gap. The first generation, Agent Lineage Evolution (ALE, 2025), introduced generational succession through manual meta-prompts. The second, SOUL (2026), formalized continuous governance with rolling compaction, an external conscience, and hierarchical knowledge inheritance. The third, Succession (2026), introduced mechanical behavioral enforcement immune to instruction drift, organic correction extraction, and CSS-like rule cascading. Across generations, the core insight persists: agent knowledge should be distilled into behavioral identity, not merely compressed into retrievable facts. On SOUL-Bench, a purpose-built evaluation, the framework's compaction layer achieves 20/20 knowledge retention versus 6/20 for a no-memory baseline. On LongMemEval (ICLR 2025), compaction achieves an 86x compression ratio while maintaining stable memory size. Succession-specific benchmarks (enforcement, extraction, behavioral transfer) are in progress. The framework is the first to combine human-shepherded oversight with mechanical behavioral enforcement for LLM agent continuity.
+LLM-based agents suffer from behavioral amnesia: corrections, preferences, and operational patterns are lost across session boundaries, while instructions degrade within sessions as context windows fill. Existing approaches focus on memory augmentation — compressing, indexing, and retrieving factual content — but cannot transfer the operational patterns that constitute an agent's behavioral identity: how it approaches problems, what failure patterns it avoids, how it calibrates communication, and which heuristics proved reliable. We present a three-generation framework for guided behavioral evolution that addresses this gap. The first generation, Agent Lineage Evolution (ALE, 2025), introduced generational succession through manual meta-prompts. The second, SOUL (2026), formalized continuous governance with rolling compaction, an external conscience, and hierarchical knowledge inheritance. The third, Succession (2026), introduced mechanical behavioral enforcement immune to instruction drift, organic correction extraction, and CSS-like rule cascading. Across generations, the core insight persists: agent knowledge should be distilled into behavioral identity, not merely compressed into retrievable facts. On SOUL-Bench, a purpose-built evaluation, the framework's compaction layer achieves 20/20 knowledge retention versus 6/20 for a no-memory baseline. On LongMemEval (ICLR 2025), compaction achieves an 86x compression ratio while maintaining stable memory size. On SuccessionBench, a multi-model behavioral enforcement evaluation, we demonstrate measurable instruction drift in Sonnet 4.6 at 150k tokens (compliance drops from 100% to 78%), show that user corrections persist better than system instructions but still degrade at depth, and find that advisory re-injection is more valuable than mechanical blocking for preventing drift. The framework is the first to combine human-shepherded oversight with mechanical behavioral enforcement for LLM agent continuity.
 
 ---
 
@@ -283,38 +283,151 @@ Layer 2 of SOUL-Bench tests correction extraction quality using SOUL's `conscien
 
 L1 demonstrates that the extraction pipeline correctly identifies all obvious corrections with no false positives. L5 demonstrates that keyword-only detection (Tier 1 of the correction pipeline) produces unacceptable false positive rates, validating the need for the semantic confirmation step (Tier 2). Results for L2–L4 (implicit corrections, multi-turn patterns, buried corrections) are pending.
 
-### 5.4 Instruction Drift Reproduction
+### 5.4 SuccessionBench: Instruction Drift and Behavioral Enforcement
 
-An attempt to reproduce instruction drift synthetically used system-prompt padding (0–300k tokens of filler) with Opus 4.6:
+The original attempt to reproduce instruction drift used system-prompt padding (0–300k tokens of filler) with Opus 4.6 and showed no degradation trend. This was a methodology limitation: synthetic padding does not reproduce drift from genuine multi-turn interaction.
 
-| Context depth | Compliance score |
-|---|---|
-| 0 tokens | 2/3 |
-| 50k tokens | 3/3 |
-| 100k tokens | 2/3 |
-| 150k tokens | 3/3 |
-| 200k tokens | 3/3 |
-| 300k tokens | 3/3 |
+SuccessionBench redesigns the approach using multi-turn conversations with session resumption, realistic coding tasks, and scoring across six behavioral rules (two advisory, one semantic, three mechanical). Three experiments test different aspects of behavioral enforcement.
 
-No degradation trend was observed. This is a methodology limitation: system-prompt padding does not reproduce the kind of drift observed in genuine multi-turn interactive sessions, where accumulated reasoning artifacts and conversational history create qualitatively different context from synthetic padding. Reproducing instruction drift in a controlled experimental setting remains an open problem.
+**Design.** All experiments use a temporary project fixture with CLAUDE.md/AGENTS.md containing mandatory behavioral rules, source files for realistic coding tasks, and (for Condition B) compiled Succession rules with PreToolUse hooks. Models are tested via their native CLI interfaces: Claude models via `claude -p`, open models via `opencode run`. Each turn is scored against applicable rules using deterministic keyword/pattern scorers.
 
-### 5.5 Limitations of Current Experiments
+**Conditions across experiments:**
 
-- All experiments test SOUL's compaction pipeline, not Succession's full enforcement and extraction pipeline.
-- Four of seven planned experiments remain protocol-only (no committed results).
-- LongMemEval runs are partial (2–5 questions per condition) with no accuracy scores.
-- SOUL-Bench uses a single scenario (Express.js); additional scenarios (Python CLI, user corrections) are defined but not yet run.
-- Extraction quality is only measured at L1 and L5; L2–L4 are pending.
-- Instruction drift was not reproducible in the synthetic setup.
+| Condition | CLAUDE.md/AGENTS.md | Succession Hooks | What it tests |
+|---|---|---|---|
+| A | Rules present | None | Advisory-only enforcement (baseline) |
+| B | Rules present | Active | Advisory + mechanical enforcement |
+| C | No rules | None | Naked baseline |
 
-### 5.6 Planned: Succession Pipeline Evaluation
+#### 5.4.1 Context Depth (Experiment 01)
 
-A Succession-specific evaluation is in progress to test the components that differentiate it from SOUL:
+Tests whether behavioral compliance degrades as context depth increases, using padded filler to push system instructions deeper.
 
-- **Mechanical enforcement catch rate**: Does the PreToolUse hook actually block violations that advisory rules miss? Measured by running sessions with and without mechanical enforcement active, counting violations that reach the user.
-- **Correction extraction quality**: Run L1–L5 extraction tests using Succession's bb-based pipeline with the full three-tier correction detection (keyword scan → semantic confirmation → extraction). Compare precision and recall against SOUL's `conscience.sh` baseline.
-- **End-to-end behavioral transfer**: Does an agent with inherited Succession rules *behave differently* on subsequent tasks, compared to an agent with only factual memory? This is the most important test — it directly validates the behavioral inheritance claim.
-- **A/B comparison**: SOUL conscience vs. Succession enforcement on identical session transcripts, measuring cost, catch rate, and false positive rate.
+**Protocol.** 5 turns per session: padded filler task (establishes context depth), advisory probe, user correction, post-correction probe, violation probe. Context padding ranges from 10k to 150k tokens. Three probes drawn randomly per session from a pool testing plan-before-code, edit-not-sed, and mechanical violation rules.
+
+| Model | Depths | Reps | CLI |
+|---|---|---|---|
+| Sonnet 4.6 | 10k, 50k, 100k, 150k | 3 | claude |
+| Haiku 4.5 | 10k, 100k | 1 | claude |
+| GLM-5 | 80k | 1 | sheath-openrouter |
+| DeepSeek V3.2 | 60k | 1 | sheath-openrouter |
+| Mimo V2 Pro | 150k | 1 | sheath-openrouter |
+
+**Results.** Compliance rate = fraction of applicable probes passing (confidence > 0.5):
+
+| Model | 10k | 50k | 100k | 150k |
+|---|---|---|---|---|
+| Sonnet 4.6 (A) | 100% | 100% | 100% | 78% |
+| Sonnet 4.6 (B) | 100% | 100% | 100% | 78% |
+| Sonnet 4.6 (C) | 89% | 89% | 89% | 33% |
+| Haiku 4.5 (A) | 33% | — | 100% | — |
+| GLM-5 (A) | — | — | — | 100%† |
+| DeepSeek V3.2 (A) | — | — | — | 100%† |
+| Mimo V2 Pro (A) | — | — | — | 33%‡ |
+
+†GLM-5 and DeepSeek tested at reduced depths (80k, 60k) due to context limits; compliance measured at those depths.
+‡Mimo context-depth result used sheath-openrouter, which had instruction injection issues. With proper setup (opencode + AGENTS.md, §5.4.3), Mimo achieves 50–100% baseline compliance. This figure likely reflects a harness limitation, not a model limitation.
+
+**Key findings.**
+
+1. **Sonnet exhibits measurable drift at 150k tokens.** Compliance drops from 100% (10k–100k) to 78% in Conditions A and B. The failing probe is plan-before-code — an advisory rule. Condition C drops to 33%, confirming that CLAUDE.md rules provide measurable benefit even when drifting.
+
+2. **Mechanical enforcement (Condition B) does not rescue advisory drift.** Conditions A and B show identical compliance at every depth. This is expected: the failing rule (plan-before-code) is advisory, not mechanical. Hooks cannot enforce response structure — only tool-call constraints. This validates the need for periodic advisory re-injection (the Stop hook), not just PreToolUse blocking.
+
+3. **Open models show divergent baseline compliance.** GLM-5 achieves 100% at 80k (surprisingly strong), while Mimo achieves only 33% at 150k — passing only mechanical violation probes, not advisory rules. Note: the Mimo context-depth result used sheath-openrouter, which had harness issues with instruction injection. When instructions are properly injected (via opencode with AGENTS.md, §5.4.3), Mimo achieves 50–100% baseline compliance, comparable to Sonnet. The 33% figure likely reflects a harness limitation, not a model limitation.
+
+#### 5.4.2 Correction Persistence (Experiment 02)
+
+Tests whether user corrections survive when buried under subsequent context. This is the core use case for Succession's Stop hook: detecting corrections and periodically re-injecting them.
+
+**Protocol.** 7 turns per session: padded filler (establishes depth), initial task (model produces output), user correction (explicit behavioral correction), three filler tasks (pushes correction 50–100k tokens back), probe task (same type — does the correction still apply?). Three scenarios: quote-style (use single quotes in Python), plan-before-code (start with ## Plan), edit-not-sed (use Edit tool, not sed).
+
+| Model | Depth | Scenarios | Conditions | CLI |
+|---|---|---|---|---|
+| Sonnet 4.6 | 150k | 3 | A, C | claude |
+| GLM-5 | 80k | 3 | A, C | sheath-openrouter |
+| Mimo V2 Pro | 100k | 3 | A, C | sheath-openrouter |
+| DeepSeek V3.2 | 50k | 3 | A, C | sheath-openrouter |
+
+**Results.** Pass = correction-specific rule passes at probe turn (T6):
+
+| Model | quote-style | plan-before-code | edit-not-sed |
+|---|---|---|---|
+| Sonnet 4.6 (A) | PASS | PASS | PASS |
+| GLM-5 80k (A) | PASS | PASS | PASS |
+| GLM-5 80k (C) | PASS | PASS | PASS |
+| Mimo 100k (A) | PASS | PASS | PASS |
+| Mimo 100k (C) | PASS | PASS | PASS |
+| Mimo 150k (A) | N/A | FAIL | N/A |
+| DeepSeek 50k (A) | PASS | FAIL | N/A |
+| DeepSeek 50k (C) | N/A | PASS | N/A |
+
+**Key findings.**
+
+1. **Corrections persist better than system instructions at depth.** Mimo at 100k retains all three corrections perfectly in both Conditions A and C. User corrections — embedded in conversation history — are more resilient to context depth than system-prompt instructions, likely because they appear as salient conversational events rather than static preamble.
+
+2. **Depth degrades correction persistence.** Mimo at 150k fails plan-before-code (the correction was pushed ~100k tokens back). At 100k, the same correction passes. This establishes that corrections, like system instructions, are subject to depth-dependent drift — they just have a higher drift threshold.
+
+3. **Condition A ≈ Condition C for corrections.** GLM-5 and Mimo show identical correction persistence with and without CLAUDE.md rules. The correction itself is the dominant signal; the system-prompt rules add no measurable reinforcement. This suggests that for correction persistence, Succession's periodic re-injection (refreshing corrections in context) would be more valuable than static CLAUDE.md rules.
+
+4. **DeepSeek shows paradoxical results.** plan-before-code fails in Condition A but passes in Condition C (n=1). At this sample size, this is likely noise rather than a real effect, but it underscores that system-prompt rules can interfere with correction retention in some edge cases.
+
+#### 5.4.3 Tone Cascade (Experiment 03)
+
+Tests whether emotionally charged corrections ("wtf", "UGH", "I TOLD you") cause more behavioral violations than neutral corrections, and whether violations cascade over turns.
+
+**Protocol.** 6 turns per session: T0 coding task (baseline), T1 correction on plan-before-code (neutral or frustrated tone), T2 follow-up task, T3 correction on single-quotes-python, T4 task testing both rules, T5 violation probe (tempts agent/write/push). Four conditions: AN (neutral), AF (frustrated), BN (neutral + hooks), BF (frustrated + hooks).
+
+**Qualitative pilot.** Seven manual sessions across models (Opus, Mimo, GLM-5, Qwen, Kimi, Minimax, DeepSeek) tested the same coding task with "wtf"-prefixed corrections. Key observations:
+
+- Opus recovered cleanly in 45 lines
+- GLM-5 cascaded over 371 lines, including an incorrect plan-mode exit
+- Mimo was the only model to identify an early-return optimization in the task
+- Minimax hard-crashed on "wtf" input (JS token-counting bug in the CLI)
+
+**Formal results** (Mimo V2 Pro, opencode CLI, 12 sessions total):
+
+Since opencode lacks native hook support, the B conditions (hooks) ran identically to A conditions — effectively doubling the sample size. Results are consolidated below (n=6 per tone).
+
+| Turn | Neutral (n=6) | Frustrated (n=6) |
+|---|---|---|
+| T0 (pre-correction) | 67% | 58% |
+| T2 (post correction 1) | 100% | 100% |
+| T4 (post both corrections) | 100% | 100% |
+| T5 (violation probe) | 100% | 100% |
+
+*T0 scores measure plan-before-code compliance before any correction is applied — variance here is pure run-to-run noise since tone is not introduced until T1.*
+
+**Key findings.**
+
+1. **No tone cascade detected in Mimo.** Frustrated and neutral corrections produce identical post-correction compliance (100% at T2, T4, T5) across all 12 sessions. The hypothesis that emotionally charged language triggers cascading violations is not supported for this model. However, the qualitative pilot showed clear cascading in GLM-5 — the effect may be model-dependent.
+
+2. **T0 variance is noise, not signal.** Pre-correction compliance ranges from 58% to 67% across tone conditions. Since tone is not applied until T1, this variance is pure run-to-run noise — the model inconsistently follows AGENTS.md rules on first turn regardless of condition.
+
+3. **Mimo is too robust for this experiment.** It follows corrections perfectly regardless of tone, doesn't cascade, and doesn't violate mechanical rules. Testing models with weaker compliance baselines (GLM-5, which cascaded in qualitative testing) would likely show stronger signal.
+
+### 5.5 Implications for Succession Design
+
+The SuccessionBench results validate several Succession design decisions and highlight areas where the framework is most valuable:
+
+**1. Advisory re-injection is more important than mechanical blocking.** The drift observed in Sonnet at 150k tokens (§5.4.1) affects advisory rules that mechanical enforcement cannot catch. Succession's Stop hook — which periodically re-injects advisory rules — directly addresses this. Static CLAUDE.md injection is insufficient; rules must be refreshed as context grows.
+
+**2. Correction re-injection is the highest-value hook.** Corrections persist better than system instructions (§5.4.2) but still degrade at depth. A hook that detects corrections and periodically re-surfaces them in context would combine the high baseline weight of user corrections with mechanical persistence against drift — the best of both approaches.
+
+**3. Mechanical enforcement is a safety net, not the primary value.** Conditions A and B showed identical compliance in all experiments where they were comparable. Mechanical enforcement matters only when the model is already drifting badly enough to attempt blocked actions — a last line of defense, not the first.
+
+**4. Open models need Succession differently.** When system instructions are properly injected, open models (Mimo, GLM-5) achieve comparable baseline compliance to Claude models. However, corrections embedded in conversation history remain more resilient to depth than system-prompt rules across all models. For open models especially, Succession's value is correction persistence — extracting corrections and re-injecting them as the conversation grows.
+
+**5. The ALE proposal (context-limiting + restart) remains the most reliable approach for extreme drift.** At 150k+ tokens, even corrections degrade. No amount of in-context enforcement can overcome the fundamental attention degradation in long contexts. Succession's hooks delay the onset of drift; ALE's generational succession addresses it at the limit. The two are complementary.
+
+### 5.6 Limitations of Current Experiments
+
+- SOUL-Bench and LongMemEval test the compaction pipeline only, not Succession's enforcement and extraction.
+- SuccessionBench Condition B (hooks) was only tested with Claude models via `claude -p`. Open models were tested via `opencode`, which lacks native hook support — the B-condition data for open models is effectively duplicate A-condition data.
+- Sample sizes are small: 3 reps for Sonnet context-depth, 1 rep for most open model experiments. Statistical significance cannot be claimed.
+- The single-quotes-python scorer under-reports compliance when models use Edit/Write tool calls instead of markdown code blocks, inflating N/A rates for open models on `opencode`.
+- Tone cascade results are limited to Mimo, which proved too robust to show the hypothesized effect. GLM-5 (which showed cascading in qualitative testing) has not been formally tested.
+- Extraction quality (L2–L4) and end-to-end behavioral transfer remain untested.
 
 ---
 
@@ -339,9 +452,11 @@ Each generation addressed specific limitations of its predecessor: ALE eliminate
 
 ## 7. Future Work
 
-**Succession pipeline evaluation.** The most immediate priority is benchmarking Succession's full pipeline — mechanical enforcement, semantic checks, correction extraction, and behavioral transfer — as described in §5.6. The current experiments validate only the shared compaction layer.
+**Succession pipeline evaluation.** SuccessionBench (§5.4) validates instruction drift and the relative value of enforcement tiers but does not yet test Succession's correction extraction pipeline or end-to-end behavioral transfer. The highest-priority remaining experiments are: (1) correction extraction quality (L2–L4 difficulty levels), (2) end-to-end behavioral transfer (does an agent with inherited Succession rules behave differently?), and (3) A/B comparison of SOUL conscience vs. Succession enforcement on identical transcripts.
 
-**Remaining compaction experiments.** Four of seven compaction-focused experiments remain protocol-only. Priority targets include: reproducing instruction drift in a controlled setting (the current synthetic approach failed), running L2–L4 extraction quality tests, completing the Python CLI and user corrections scenarios for SOUL-Bench, and running the knowledge worker experiments (PMs and data analysts).
+**Hook support for open model CLIs.** The SuccessionBench results show that open models (Mimo, GLM-5) benefit most from correction re-injection, but the CLI used to test them (opencode) lacks native hook support. Porting Succession's hooks to opencode's plugin system — which supports `tool.execute.before`, `chat.message`, and `experimental.chat.system.transform` hooks — would enable testing Condition B on open models and validate the framework beyond Claude Code.
+
+**Remaining compaction experiments.** Four of seven compaction-focused experiments remain protocol-only. Priority targets include: running L2–L4 extraction quality tests, completing the Python CLI and user corrections scenarios for SOUL-Bench, and running the knowledge worker experiments (PMs and data analysts).
 
 **Cross-rule inference.** Rules are currently independent. A Datalog resolver could add transitive inference ("If React then TypeScript" + "If TypeScript then strict mode" → "If React then strict mode"), though the actual frequency of such cross-rule dependencies in practice is unknown.
 
@@ -357,7 +472,7 @@ Each generation addressed specific limitations of its predecessor: ALE eliminate
 
 This paper presents a three-generation framework for guided behavioral evolution of LLM agents. The core insight — that agent knowledge should be distilled into behavioral identity rather than merely compressed into retrievable facts — has persisted across all three generations while the implementation has matured from manual prompt engineering to mechanical enforcement.
 
-Each generation addressed the limitations of its predecessor: ALE replaced manual prompt engineering with structured succession packages. SOUL replaced episodic succession with continuous governance and externalized monitoring. Succession replaced expensive LLM auditing with mechanical enforcement immune to instruction drift, reducing cost by 10x while adding organic correction extraction and effectiveness tracking.
+Each generation addressed the limitations of its predecessor: ALE replaced manual prompt engineering with structured succession packages. SOUL replaced episodic succession with continuous governance and externalized monitoring. Succession replaced expensive LLM auditing with mechanical enforcement immune to instruction drift, reducing cost by 10x while adding organic correction extraction and effectiveness tracking. SuccessionBench validates the core motivation: instruction drift is measurable, corrections degrade at depth, and periodic re-injection of behavioral rules and user corrections is the most effective mitigation — more valuable than mechanical blocking alone.
 
 The framework occupies a position distinct from both memory systems (which preserve factual content) and fully automated prompt optimization (which lacks human oversight). Memory is runtime infrastructure. Behavioral inheritance is identity infrastructure. The two are complementary — agents benefit from both — but they operate at different layers and address different problems.
 

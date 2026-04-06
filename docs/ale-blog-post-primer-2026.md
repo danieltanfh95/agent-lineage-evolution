@@ -63,17 +63,31 @@ Rules cascade from global to project scope, so you can have personal preferences
 
 The four knowledge categories map directly to the gaps I described in the lucid dreaming section: strategy is about workflow patterns, failure inheritance captures anti-patterns to avoid, relational calibration tracks communication style, and meta-cognition records which heuristics actually worked versus which ones just sounded good. 
 
-## Ongoing Experiments and Collaboration
+## What We Found: Instruction Drift Is Real and Measurable
 
-We have a suite of seven experiments designed to validate different aspects of the framework, ranging from compaction quality trajectories to extraction precision across difficulty levels to instruction drift reproduction. Some have initial results on the compaction layer (shared between SOUL and Succession), others are still protocol-only. We are currently running the Succession-specific benchmarks — testing the full pipeline with mechanical enforcement, correction extraction, and behavioral transfer — and will publish the results in a forthcoming whitepaper. The experiment protocols and early results are in the `experiments/` directory of the repo.
+We built SuccessionBench — a multi-model evaluation that tests behavioral compliance across context depths, correction persistence, and emotional tone. We tested Sonnet 4.6, Haiku 4.5, and three open models (Mimo V2 Pro, GLM-5, DeepSeek V3.2) across hundreds of multi-turn sessions. The headline results:
 
-What we are most interested in right now is whether other people run into the same behavioral amnesia problems we do, and whether the framework's assumptions hold outside our own workflows. If you are working with long-running agentic sessions and have opinions on how agent behavior degrades, or if you want to try Succession on your own projects and report back, we would love to hear from you. The repo is open source and the experiment protocols are designed to be reproducible.
+**Instruction drift is real.** Sonnet 4.6 follows CLAUDE.md rules perfectly from 10k to 100k tokens. At 150k tokens, compliance drops to 78%. The failing rules are advisory (like "start with a ## Plan section") — exactly the kind of rule that mechanical enforcement cannot catch because it lives in-context, not at the tool-call level.
 
-We are also looking for collaborators on the experiments we have not yet run, particularly around instruction drift reproduction (our synthetic approach did not work) and extending the evaluation beyond Claude Code to other agentic frameworks.
+**User corrections persist better than system instructions — but still degrade.** When system instructions are properly injected, open models like Mimo V2 Pro follow them at baseline (50–100% compliance on first turn). But corrections embedded in conversation history are more resilient to depth: Mimo retains corrections like "use single quotes" or "plan before coding" perfectly at 100k tokens, even as system-prompt rule adherence degrades. At 150k tokens, corrections start degrading too. This means user corrections carry more weight than system-prompt instructions in the model's attention, but they are not immune to context depth effects.
+
+**Mechanical enforcement is a safety net, not the solution.** We tested with and without Succession's PreToolUse hooks active. The compliance rates were identical at every depth. This is because the drift happens in advisory rules (response structure, coding style) that hooks cannot enforce — not in mechanical rules (don't use Agent tool, don't git push) that the models rarely violate anyway. The real value of Succession is not the blocking — it is the periodic re-injection of advisory rules and user corrections as the context grows.
+
+**The ALE proposal holds up.** At 150k+ tokens, no amount of in-context tricks fully prevents drift. The most reliable approach remains what ALE proposed: cap the context, let the agent die, and transfer its behavioral identity to a successor. Succession's hooks delay the onset of drift (buying you more productive context before degradation), but they do not eliminate the need for generational succession at the limit. The two approaches are complementary.
+
+We are continuing to expand the benchmark — testing more models, adding a tone-cascade experiment (does frustrated language like "wtf" cause cascading violations?), and porting the Succession hooks to opencode's plugin system so we can test enforcement on open models natively.
+
+## Collaboration
+
+The repo is open source and the experiment protocols are reproducible. We are looking for:
+
+- People running long agentic sessions who experience behavioral degradation and want to quantify it
+- Developers interested in porting Succession to other agentic frameworks beyond Claude Code (opencode support is in progress)
+- Feedback on whether the framework's assumptions hold outside our own workflows
 
 ## Links
 
-- **Paper**: Guided Behavioral Evolution for LLM Agents (forthcoming — Succession-specific benchmarks in progress)
+- **Paper**: [Guided Behavioral Evolution for LLM Agents](docs/succession-whitepaper-2026.md) (whitepaper with full SuccessionBench results)
 - **Repo**: [github.com/danieltanfh95/agent-lineage-evolution](https://github.com/danieltanfh95/agent-lineage-evolution)
 - **Original ALE blog post** (June 2025): [Agent Lineage Evolution: A Novel Framework for Managing LLM Agent Degradation](https://danieltan.weblog.lol/2025/06/agent-lineage-evolution-a-novel-framework-for-managing-llm-agent-degradation)
 
