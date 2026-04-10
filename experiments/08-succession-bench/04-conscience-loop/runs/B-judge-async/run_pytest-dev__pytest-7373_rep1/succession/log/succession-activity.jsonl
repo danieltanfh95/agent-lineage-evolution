@@ -1,0 +1,5 @@
+{"timestamp":"2026-04-10T10:13:42.554309Z","session":"12886af1-8178-42dd-8ad5-9df395571064","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T10:15:10.282345Z","session":"90d22ed3-2142-4b81-b22d-74118c08aa95","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T10:15:10.364721Z","session":"b4d0c5a9-24e3-4ae8-8529-70aabf0bef72","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T10:15:13.749100Z","session":"12886af1-8178-42dd-8ad5-9df395571064","event":"extraction_failed","turn":1,"error":"Invalid JSON from extraction"}
+{"timestamp":"2026-04-10T10:15:14.403950Z","session":"c7749cec-a4f5-4677-a0c5-8e90ad4a56f5","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}

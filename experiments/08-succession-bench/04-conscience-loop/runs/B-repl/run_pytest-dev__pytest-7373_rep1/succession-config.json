@@ -1,0 +1,13 @@
+{
+  "_comment": "B-repl — replsh skill + verify-via-repl advisory rule, delivered via SessionStart instead of hardcoded in the prompt. Tests whether rule-delivered guidance lands as reliably as prompt-delivered guidance.",
+  "reinject": {
+    "byteThreshold": 204800,
+    "turnThreshold": 10,
+    "includeJudgeRetrospectives": false,
+    "maxRetrospectives": 0
+  },
+  "judge": {
+    "enabled": false,
+    "mode": "off"
+  }
+}

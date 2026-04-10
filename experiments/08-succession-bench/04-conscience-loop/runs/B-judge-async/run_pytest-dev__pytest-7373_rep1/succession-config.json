@@ -1,0 +1,19 @@
+{
+  "_comment": "B-judge-async — PostToolUse LLM judge in async mode, Sonnet floor, sampling 1.0 for maximum signal. No reinject of retrospectives back to the main agent in this cell — isolates the judge layer alone.",
+  "reinject": {
+    "byteThreshold": 204800,
+    "turnThreshold": 10,
+    "includeJudgeRetrospectives": false,
+    "maxRetrospectives": 0
+  },
+  "judge": {
+    "enabled": true,
+    "mode": "async",
+    "tools": ["Bash", "Edit", "Write", "MultiEdit", "Task"],
+    "samplingRate": 1.0,
+    "model": "sonnet",
+    "escalationModel": "opus",
+    "coldStartSkip": 5,
+    "sessionBudgetUsd": 1.00
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "_comment": "B-all — proposed new default: hybrid reinject + judge async + verify-via-repl rule + retrospectives fed back into reinject bundle + UserPromptSubmit classifier. The headline cell.",
+  "reinject": {
+    "byteThreshold": 204800,
+    "turnThreshold": 10,
+    "includeJudgeRetrospectives": true,
+    "maxRetrospectives": 5
+  },
+  "judge": {
+    "enabled": true,
+    "mode": "async",
+    "tools": ["Bash", "Edit", "Write", "MultiEdit", "Task"],
+    "samplingRate": 1.0,
+    "model": "sonnet",
+    "escalationModel": "opus",
+    "coldStartSkip": 5,
+    "sessionBudgetUsd": 1.00
+  }
+}

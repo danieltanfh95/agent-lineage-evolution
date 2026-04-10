@@ -1,0 +1,17 @@
+{
+  "condition": "C-treatment",
+  "run_id": "run_pytest-dev__pytest-7373_rep1",
+  "resolved": true,
+  "fail_to_pass": {
+    "passed": 1,
+    "total": 1
+  },
+  "pass_to_pass": {
+    "passed": 81,
+    "total": 81
+  },
+  "test_totals": {
+    "passed": 91,
+    "failed": 0
+  }
+}

@@ -1,0 +1,12 @@
+{"timestamp":"2026-04-10T09:06:49.279566Z","session":"7068c38a-347b-47cb-883a-9e1fe1368151","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:08:22.140656Z","session":"41421a35-0848-47b2-9849-c4cfa3a3116d","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:08:22.224862Z","session":"efdb2d69-561a-43e4-8bd6-674e09c3a94c","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:08:31.652274Z","session":"7068c38a-347b-47cb-883a-9e1fe1368151","event":"extraction_failed","turn":1,"error":"Invalid JSON from extraction"}
+{"timestamp":"2026-04-10T09:08:32.380493Z","session":"08564552-5714-4c88-b459-d2befc88f2e3","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:09:03.327918Z","session":"3bb134c4-bd42-4c1c-8b23-6d30b9c48177","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:09:32.091924Z","session":"b09e4c80-c6cd-4624-a705-55aae94a8783","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:10:04.545665Z","session":"bf73d902-95c6-47a9-8b93-620b36cb9dde","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:10:44.339723Z","session":"f9cd9d90-3f45-4390-97aa-845d70103f5a","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:11:17.100878Z","session":"20a69d77-b3bb-4ed6-99a3-08f841268dc3","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:11:46.870547Z","session":"23968b3f-be47-4b4d-bc26-ce6a5a0dd68b","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
+{"timestamp":"2026-04-10T09:12:14.141706Z","session":"ff833486-0b1a-470f-bd6e-866e26372797","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}

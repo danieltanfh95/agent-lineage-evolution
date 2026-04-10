@@ -1,0 +1,13 @@
+{
+  "_comment": "B-reinject — hybrid reinject trigger only. Isolates the bytes-or-turns change.",
+  "reinject": {
+    "byteThreshold": 204800,
+    "turnThreshold": 10,
+    "includeJudgeRetrospectives": false,
+    "maxRetrospectives": 0
+  },
+  "judge": {
+    "enabled": false,
+    "mode": "off"
+  }
+}
