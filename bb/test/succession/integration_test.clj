@@ -148,9 +148,12 @@
             "Never force push.\n\n## Enforcement\n- block_bash_pattern: git push.*(--force|-f)\n- reason: Force-push blocked")
           (resolve/resolve-and-compile! (:project fix))
 
+          ;; Use a non-protected branch so the user-authored rule wins
+          ;; rather than the hardcoded critical-safety floor. The floor
+          ;; only matches main/master/prod/production/release branches.
           (let [result (ptu/run {:cwd (:project fix)
                                   :tool_name "Bash"
-                                  :tool_input {:command "git push --force origin main"}
+                                  :tool_input {:command "git push --force origin feature-branch"}
                                   :session_id sess})]
             (is (= "block" (:decision result)))
             (is (str/includes? (:reason result) "Force-push blocked")))))
@@ -203,10 +206,14 @@
     (try
       (with-home (:home fix)
         (fn []
-          ;; No resolve, no tool-rules.json
+          ;; No resolve, no tool-rules.json. A benign command that is
+          ;; not caught by the hardcoded critical-safety floor should
+          ;; return nil (= allow). Dangerous commands like `rm -rf /`
+          ;; would still be blocked by the always-on floor — covered
+          ;; separately in critical-safety tests.
           (let [result (ptu/run {:cwd (:project fix)
                                   :tool_name "Bash"
-                                  :tool_input {:command "rm -rf /"}
+                                  :tool_input {:command "echo hello"}
                                   :session_id sess})]
             (is (nil? result)))))
       (finally

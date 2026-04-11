@@ -97,21 +97,37 @@
                    (str "- [" tier "] " id " — " summary)))
        "\n"))
 
+(defn- rule-bullet
+  "One markdown bullet for a rule: `- **id** — first-3-lines-of-body`.
+   The body has `## Enforcement` and trailing whitespace stripped so
+   only the human-facing description appears in the summary."
+  [rule]
+  (let [body-summary (-> (:body rule "")
+                         (str/replace #"## Enforcement[\s\S]*" "")
+                         str/trim
+                         str/split-lines
+                         (->> (take 3)
+                              (str/join " ")
+                              str/trim))]
+    (str "- **" (:id rule) "** — " body-summary)))
+
 (defn compile-advisory-summary
-  "Compile all rules into a strong advisory summary matching CLAUDE.md framing."
-  [all-rules]
-  (str "## MANDATORY BEHAVIORAL RULES — YOU MUST FOLLOW THESE\n\n"
+  "Compile advisory + semantic rules into a single markdown summary.
+   Each bullet carries the rule id so integrators can trace which rule
+   produced a given line. Takes two seqs rather than a single merged
+   one so callers can organize their output by tier."
+  [advisory-rules semantic-rules]
+  (str "# Active Rules\n\n"
        "IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\n"
-       (str/join "\n"
-                 (for [rule all-rules]
-                   (let [body-summary (-> (:body rule "")
-                                          (str/replace #"## Enforcement[\s\S]*" "")
-                                          str/trim
-                                          str/split-lines
-                                          (->> (take 3)
-                                               (str/join " ")))]
-                     (str "- " body-summary))))
-       "\n\nThese rules are mandatory. Every response must demonstrate compliance."))
+       (when (seq advisory-rules)
+         (str "## Advisory\n\n"
+              (str/join "\n" (map rule-bullet advisory-rules))
+              "\n\n"))
+       (when (seq semantic-rules)
+         (str "## Semantic (enforced by judge)\n\n"
+              (str/join "\n" (map rule-bullet semantic-rules))
+              "\n\n"))
+       "These rules are mandatory. Every response must demonstrate compliance."))
 
 (defn review-candidates
   "Analyze effectiveness and return rules that need review or promotion."
@@ -158,7 +174,7 @@
 
         tool-rules (compile-tool-rules mechanical)
         semantic-md (compile-semantic-rules semantic)
-        advisory-md (compile-advisory-summary resolved)
+        advisory-md (compile-advisory-summary advisory semantic)
         digest-md (compile-active-rules-digest resolved)
         candidates (review-candidates resolved)]
 
