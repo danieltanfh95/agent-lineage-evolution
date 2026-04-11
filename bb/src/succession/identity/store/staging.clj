@@ -152,3 +152,21 @@
         snap   (materialize-snapshot deltas)]
     (write-snapshot! project-root session-id snap)
     snap))
+
+(defn- delete-tree! [^java.io.File f]
+  (when (.exists f)
+    (when (.isDirectory f)
+      (doseq [^java.io.File c (.listFiles f)] (delete-tree! c)))
+    (.delete f)))
+
+(defn clear-session!
+  "Delete the entire staging directory for a session. Called by
+   PreCompact after the deltas have been promoted and archived — staging
+   is then empty ground for the next session.
+
+   Returns true if the directory existed and was deleted, false otherwise."
+  [project-root session-id]
+  (let [dir (io/file (paths/staging-dir project-root session-id))]
+    (if (.exists dir)
+      (do (delete-tree! dir) true)
+      false)))
