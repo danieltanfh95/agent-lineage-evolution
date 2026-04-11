@@ -1,4 +1,4 @@
-(ns succession.identity.store.paths
+(ns succession.store.paths
   "Canonical disk paths for the identity store. Every other store
    namespace derives its paths from here so the disk layout can be
    moved with one edit.
@@ -106,6 +106,43 @@
 (defn promote-lock
   [project-root]
   (join (root project-root) "promote.lock"))
+
+;; ------------------------------------------------------------------
+;; Async job queue (store/jobs + worker/drain). Layout:
+;;
+;;   staging/jobs/<ts>-<uuid>.json           ; pending
+;;   staging/jobs/.inflight/<ts>-<uuid>.json  ; claimed by a worker
+;;   staging/jobs/dead/<ts>-<uuid>.json       ; failed (with .error.edn)
+;;   staging/jobs/.worker.lock                ; at-most-one worker
+;; ------------------------------------------------------------------
+
+(defn jobs-dir
+  "Pending job directory. Workers list this to find work."
+  [project-root]
+  (join (staging-dir project-root) "jobs"))
+
+(defn job-file
+  "Absolute path to a pending job file given its filename (no
+   directory components)."
+  [project-root filename]
+  (join (jobs-dir project-root) filename))
+
+(defn jobs-inflight-dir
+  "Directory where claimed jobs live while a worker is processing them."
+  [project-root]
+  (join (jobs-dir project-root) ".inflight"))
+
+(defn jobs-dead-dir
+  "Dead-letter directory for jobs that failed processing."
+  [project-root]
+  (join (jobs-dir project-root) "dead"))
+
+(defn jobs-worker-lock
+  "Lock file enforcing at-most-one drain worker per project-root.
+   Intentionally sits *inside* the jobs dir so the lock and the queue
+   share a fate — deleting the dir clears the lock too."
+  [project-root]
+  (join (jobs-dir project-root) ".worker.lock"))
 
 (defn ensure-dir!
   "Create a directory (including parents) if it does not exist. Returns

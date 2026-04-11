@@ -1,171 +1,164 @@
-# Succession — Behavioral Pattern Extraction for AI Coding Agents
+# Succession — Identity Cycle for AI Coding Agents
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19437321.svg)](https://doi.org/10.5281/zenodo.19437321)
 
-Succession detects behavioral corrections from your conversations with AI coding agents and turns them into persistent, enforceable rules. It solves the problem of AI agents forgetting your preferences between sessions and within long sessions (instruction drift at ~150k tokens).
+Succession is a behavioral-memory system for AI coding agents. It captures
+corrections and preferences across sessions as **identity cards**, then refreshes
+them back into the agent's context while it works — adjacent to each tool call,
+so the rules stay inside the attention window instead of drifting out of it.
 
-Successor to [SOUL](docs/archive/soul-framework-whitepaper.md) and [ALE](docs/ale-blog-post-2025.md), focusing on behavioral pattern extraction over full agent governance.
+Successor to [SOUL](docs/archive/soul-framework-whitepaper.md) and
+[ALE](docs/ale-blog-post-2025.md).
 
-## The Problem
+## The problem
 
-You tell your AI agent "don't use subagents" or "always read before editing." It follows for a while, then forgets — either when the session ends or after enough context accumulates. You correct the same behavior over and over.
+LLM agents have two amnesias:
 
-## How Succession Works
+1. **Cross-session.** Corrections made in one session are forgotten when it ends.
+2. **Intra-session drift.** Rules injected at session start lose influence as
+   context fills. Around 150k tokens, Opus visibly stops following instructions
+   it acknowledged earlier.
 
-**Three enforcement tiers** ensure rules survive both session boundaries and context drift:
+CLAUDE.md, system prompts, and `additionalContext` at SessionStart address the
+first but not the second — they are delivered once, then buried.
 
-| Tier | How | Cost | Survives Drift? |
-|------|-----|------|----------------|
-| **Mechanical** | PreToolUse hook blocks tool calls via regex | $0, ~10ms | Yes — runs outside agent context |
-| **Semantic** | PreToolUse prompt hook (Sonnet) evaluates tool calls | ~$0.005/call | Yes — runs outside agent context |
-| **Advisory** | Stop hook periodically re-injects rules via `additionalContext` | $0 | Yes — refreshed every N turns |
+## How it works
 
-**Extraction pipeline** (runs automatically on the Stop hook):
-1. **Tier 1**: Free keyword scan — did the user say "no", "don't", "stop", "instead"?
-2. **Tier 2**: Sonnet micro-prompt — "Is this actually a correction?" (~$0.005)
-3. **Tier 3**: Sonnet extracts a rule with enforcement directives → writes individual rule file
+Succession runs as a set of Claude Code hooks that maintain a per-project
+**identity store** under `.succession/identity/`. Three-tier card model:
 
-**Retrospective analysis** — extract rules from past transcripts:
-```bash
-bb -cp bb/src -m succession.extract --last           # Most recent session
-bb -cp bb/src -m succession.extract --interactive     # Explore transcript interactively
-bb -cp bb/src -m succession.skill --last --apply      # Extract replayable skill bundle
-```
+- **Principle** — inviolable (`git commit --no-verify`, destroying user data, …)
+- **Rule** — default behavior with justified exceptions
+- **Ethic** — aspirational character
 
-## Quick Start
+Each card has a weight computed from observations (how often it fires, how
+recent, whether it was followed or violated). Promotion and demotion between
+tiers use hysteresis so cards don't flap.
 
-```bash
-./scripts/succession-init.sh
-```
+The load-bearing channel is the **PostToolUse refresh gate** — a compact reminder
+of the most salient cards, emitted as `hookSpecificOutput.additionalContext`
+after each tool call, gated by turn count and byte threshold so it does not spam.
+See [Finding 1](docs/archive/succession-findings-2026.md) for the empirical basis: on
+pytest-dev/pytest-5103, adjacent-to-now refresh produced 18 productive
+`replsh eval` calls where CLAUDE.md-only produced 0.
 
-This creates `~/.succession/` (global rules + hooks) and `.succession/` (project rules), and registers hooks in `~/.claude/settings.json`.
+Cards are updated through three parallel pipelines:
 
-Requires [babashka](https://github.com/babashka/babashka) (Clojure scripting, ~10ms startup):
+- **Deterministic** — PostToolUse fingerprint-matches tool calls against card
+  invocation signatures, writing `:invoked` observations.
+- **Async conscience judge** — PostToolUse enqueues a `:judge` job on the
+  filesystem-backed queue under `.succession/staging/jobs/`. A single
+  `bb succession worker drain` process LLM-judges the just-completed tool call
+  against active cards and writes verdict observations.
+- **Stop-time reconcile** — at session Stop, pure detectors check for
+  contradictions (tier conflicts, pairwise opposites, orphan archetypes); a
+  `:llm-reconcile` job on the same queue handles the ambiguous residual. The
+  worker is one process shared by both lanes and self-exits when idle.
+
+Promotions are **only** applied at PreCompact, under a filesystem lock:
+observations fold into weights, weights trigger tier changes, the old promoted
+tree is snapshotted to `.succession/archive/{ts}/`, the new tree is written
+atomically.
+
+## Install
+
+Requires [babashka](https://github.com/babashka/babashka):
 
 ```bash
 bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install)
 ```
 
-Then use Claude Code normally. Succession runs silently in the background — when you correct the agent, rules are extracted automatically.
+In the target project:
 
-### Commands (via /succession skill)
-
-| Command | What it does |
-|---------|-------------|
-| `/succession show` | Show all active rules after cascade resolution |
-| `/succession review` | Review recently extracted rules, enable/disable/delete |
-| `/succession add <text>` | Manually add a rule |
-| `/succession extract` | Retrospective extraction from past transcripts |
-| `/succession skill extract` | Extract replayable skill from a transcript |
-| `/succession resolve` | Manually re-run cascade resolution |
-
-## Architecture
-
-### Rules as Individual Files
-
-Each rule is a markdown file with YAML frontmatter:
-
-```markdown
----
-id: no-force-push
-scope: global
-enforcement: mechanical
-type: correction
-source:
-  session: abc-123
-  timestamp: 2026-04-01T10:00:00Z
-  evidence: "User said: never force push"
-overrides: []
-enabled: true
----
-
-Never force-push without explicit user confirmation.
-
-## Enforcement
-- block_bash_pattern: "git push.*(--force|-f)"
-- reason: "Force-push blocked — user requires explicit confirmation"
+```bash
+bb -cp /path/to/agent-lineage-evolution/bb/src -m succession.core install
 ```
 
-### CSS-like Cascading
+This writes (all idempotent):
 
-```
-~/.succession/rules/           # Global rules (all projects)
-.succession/rules/             # Project rules (override global with same id)
-```
+- `.claude/skills/succession-consult/SKILL.md` — tells the agent when to
+  self-consult its identity
+- `.succession/config.edn` — starter config
+- `.succession/identity/promoted/{principle,rule,ethic}/` — empty card tiers
+- `.succession/{observations,staging,archive,contradictions,judge}/`
+- `.claude/settings.local.json` hook entries for all six Claude Code events,
+  pointing at `bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m succession.core hook <event>`
+  (preserves any existing non-Succession hooks)
 
-Resolution: project rules with the same `id` override global rules. Rules with `overrides: [id]` explicitly cancel referenced rules. Disabled rules (`enabled: false`) are filtered out.
+Migrate old rule-cascade YAML files into cards:
 
-### Hook Architecture
-
-| Hook | Event | Type | Purpose |
-|------|-------|------|---------|
-| `session_start.clj` | SessionStart | command | Cascade resolve + inject advisory rules |
-| `pre_tool_use.clj` | PreToolUse | command | Mechanical enforcement (free, deterministic) |
-| (inline prompt) | PreToolUse | prompt | Semantic enforcement (Sonnet, ~$0.005) |
-| `stop.clj` | Stop | command | Correction detection + extraction + re-injection |
-| (inline prompt) | Stop | prompt | Response audit against advisory rules |
-
-### Skill Extraction
-
-Extract replayable skill bundles from transcripts — a SKILL.md containing trigger conditions, workflow steps, domain knowledge, and task-specific rules:
-
-```
-~/.succession/skills/<name>/SKILL.md    # Global skills
-.succession/skills/<name>/SKILL.md      # Project skills
+```bash
+bb -m succession.core import .succession/rules
 ```
 
-## Directory Structure
+## CLI
+
+```bash
+bb -m succession.core consult "<situation>"   # reflective self-consult
+bb -m succession.core replay <transcript>     # re-run hooks over a jsonl
+bb -m succession.core config validate         # check config.edn
+bb -m succession.core identity-diff           # diff promoted vs archive snapshot
+```
+
+## Directory layout
 
 ```
-scripts/
-  succession-init.sh                  # One-time setup (requires bb, registers hooks)
-  SKILL.md                            # /succession commands
-bb/                                   # Babashka (Clojure) implementation
-  bb.edn                              # Project config
+bb/
+  bb.edn
   src/succession/
-    yaml.clj                          # Rule file I/O (YAML frontmatter ↔ Clojure maps)
-    resolve.clj                       # Cascade resolution
-    effectiveness.clj                 # Meta-cognition tracking + analysis
-    activity.clj                      # Project-scoped activity logging
-    transcript.clj                    # Transcript finding + reading
-    extract.clj                       # Retrospective rule extraction CLI
-    skill.clj                         # Skill bundle extraction CLI
-    core.clj                          # CLI entry point
-    hooks/
-      pre_tool_use.clj                # Mechanical enforcement
-      session_start.clj               # Resolve + inject
-      stop.clj                        # Correction detection + extraction + re-injection
-  test/succession/                    # Unit + integration tests (66 tests, clojure.test)
-docs/                                 # Architecture docs and whitepaper
-  archive/                            # Previous SOUL framework docs
-experiments/                          # Empirical validation
+    core.clj              # entry dispatcher (hooks + CLI subcommands)
+    config.clj            # default config
+    domain/               # pure: card, observation, weight, tier, reconcile,
+                          #        consult, render, salience, rollup
+    store/                # disk I/O: cards, observations, staging, sessions,
+                          #           archive, contradictions, jobs, locks, paths
+    domain/queue.clj      # pure: sort-jobs, idle?, job->result
+    llm/                  # LLM I/O: judge, extract, reconcile, claude
+    hook/                 # six Claude Code hook entry points
+    worker/drain.clj      # async job-queue drain worker (core.async pipeline)
+    cli/                  # consult, replay, config-validate, install,
+                          #   identity-diff, import
+  test/succession/        # 171 tests, 469 assertions
+docs/
+  MANUAL.md               # every CLI command, flag, and hook contract
+  ARCHITECTURE.md         # layers, weight formula, data flow
+  HOOKS.md                # per-hook deep dive
+  PRIOR_ART.md            # landscape survey and where Succession fits
+  archive/                # SOUL + ALE predecessors, 2026 whitepaper + findings
+experiments/              # empirical validation (pytest-5103, LongMemEval, …)
 ```
 
 ## Documentation
 
-- **[Architecture](docs/succession-architecture.md)** — Technical description of the three-tier enforcement model
-- **[ALE Blog Post](docs/ale-blog-post-2025.md)** — The 2025 predecessor: Agent Lineage Evolution
-- **[Whitepaper](docs/succession-whitepaper-2026.md)** — Guided Behavioral Evolution for LLM Agents (SuccessionBench results)
-- **[SOUL Whitepaper](docs/archive/soul-framework-whitepaper.md)** — Previous iteration: full agent governance
-- **[Experiments](experiments/README.md)** — Empirical validation protocols
+- **[MANUAL.md](docs/MANUAL.md)** — every CLI command, flag, and hook contract
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — layers, weight formula, data flow
+- **[HOOKS.md](docs/HOOKS.md)** — per-hook deep dive with stdin/stdout contracts
+- **[PRIOR_ART.md](docs/PRIOR_ART.md)** — landscape survey and where Succession fits
 
-## Prior Work
+**Historical:**
 
-Succession is the third iteration of this research:
+- [2026 whitepaper](docs/archive/succession-whitepaper-2026.md) — design rationale at launch time (pre-Phase-4)
+- [Conscience-loop findings](docs/archive/succession-findings-2026.md) — the 18-0 pytest-5103 experiment
+- [ALE 2025 blog post](docs/ale-blog-post-2025.md) — the predecessor framework
 
-1. **ALE (2025)** — Agent Lineage Evolution: episodic succession, agents pass memory packages to successors
-2. **SOUL (2026)** — Structured Oversight of Unified Lineage: continuous governance with conscience audit loops, genome cascade, rolling compaction
-3. **Succession (2026)** — Focused on behavioral pattern extraction and mechanical enforcement. Drops identity/knowledge concerns. Adds CSS-like rule cascading, retrospective transcript analysis, and skill extraction.
+## Prior work
+
+1. **ALE (2025)** — Agent Lineage Evolution: episodic succession via
+   hand-authored meta-prompts.
+2. **SOUL (2026)** — Structured Oversight of Unified Lineage: continuous
+   governance via conscience audit loops and rolling compaction.
+3. **Succession (2026)** — Identity cycle. Cards, observations, weight-driven
+   tier promotion, PostToolUse refresh as the load-bearing delivery channel.
 
 ## Citation
 
 ```bibtex
 @software{tan_succession_2026,
   author = {Tan, Daniel},
-  title = {Succession: Behavioral Pattern Extraction for AI Coding Agents},
+  title = {Succession: Identity Cycle for AI Coding Agents},
   year = {2026},
   url = {https://github.com/danieltanfh95/agent-lineage-evolution},
-  version = {2.0.0}
+  version = {3.0.0}
 }
 ```
 

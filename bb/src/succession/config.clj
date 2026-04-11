@@ -1,4 +1,4 @@
-(ns succession.identity.config
+(ns succession.config
   "Config loader and defaults for the identity-cycle system.
 
    Every tunable in the system lives in `.succession/config.edn` at the
@@ -97,6 +97,19 @@
     "(?i)\\binstead[,.]?\\s"
     "(?i)\\bnot\\s+that\\b"]
 
+   ;; --- Async drain worker ---
+   ;; The post-tool-use and stop hooks enqueue LLM work into
+   ;; `staging/jobs/`; a single detached `bb succession worker drain`
+   ;; process pulls jobs off the queue, runs the handlers, and self-
+   ;; exits once idle. See async-lane plan §Worker lifecycle.
+   :worker/async
+   {:idle-timeout-seconds  10   ; exit after this long with no work
+    :parallelism           2    ; core.async pipeline-blocking lanes
+    :stale-lock-seconds    60   ; lock mtime older than this = dead worker
+    :heartbeat-seconds     20   ; lock mtime refresh cadence (3x grace)
+    :scan-interval-ms      500  ; jobs-dir poll interval
+    :dead-letter-enabled   true}
+
    ;; --- Retention ---
    :retention/raw-observations-sessions 50
 
@@ -155,4 +168,9 @@
           (swap! problems conj (problem [:tier/rules tier] "tier missing from :tier/rules")))))
     (when-not (every? valid-categories (:card/categories config))
       (swap! problems conj (problem [:card/categories] "contains unknown category")))
+    (when-let [w (:worker/async config)]
+      (doseq [k [:idle-timeout-seconds :parallelism :stale-lock-seconds
+                 :heartbeat-seconds :scan-interval-ms]]
+        (when-not (and (number? (get w k)) (pos? (get w k)))
+          (swap! problems conj (problem [:worker/async k] "must be a positive number")))))
     (seq @problems)))

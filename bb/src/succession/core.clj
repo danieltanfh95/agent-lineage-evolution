@@ -1,22 +1,22 @@
-(ns succession.identity.core
+(ns succession.core
   "Entry dispatcher for the Succession identity-cycle system.
 
    Two kinds of entry points:
 
    - **Hooks** (wired into Claude Code via `.claude/settings.json`): receive
-     the hook JSON on stdin, dispatch to `succession.identity.hook.*`, emit
+     the hook JSON on stdin, dispatch to `succession.hook.*`, emit
      hookSpecificOutput JSON on stdout.
 
    - **CLI** (invoked by the user or by the agent via Bash): dispatch to
-     `succession.identity.cli.*` by subcommand name.
+     `succession.cli.*` by subcommand name.
 
    No domain logic lives here. This namespace is thin routing only.
 
    Usage:
-     bb -m succession.identity.core hook session-start   < hook.json
-     bb -m succession.identity.core consult \"situation\"
-     bb -m succession.identity.core replay transcript.jsonl
-     bb -m succession.identity.core config validate")
+     bb -m succession.core hook session-start   < hook.json
+     bb -m succession.core consult \"situation\"
+     bb -m succession.core replay transcript.jsonl
+     bb -m succession.core config validate")
 
 (defn- unknown-command [kind name]
   (binding [*out* *err*]
@@ -34,38 +34,49 @@
     (case op
       ;; Hook namespaces loaded lazily so a single hook firing doesn't pay
       ;; the cost of requiring all of them.
-      "session-start"      ((requiring-resolve 'succession.identity.hook.session-start/run))
-      "user-prompt-submit" ((requiring-resolve 'succession.identity.hook.user-prompt-submit/run))
-      "pre-tool-use"       ((requiring-resolve 'succession.identity.hook.pre-tool-use/run))
-      "post-tool-use"      ((requiring-resolve 'succession.identity.hook.post-tool-use/run))
-      "stop"               ((requiring-resolve 'succession.identity.hook.stop/run))
-      "pre-compact"        ((requiring-resolve 'succession.identity.hook.pre-compact/run))
+      "session-start"      ((requiring-resolve 'succession.hook.session-start/run))
+      "user-prompt-submit" ((requiring-resolve 'succession.hook.user-prompt-submit/run))
+      "pre-tool-use"       ((requiring-resolve 'succession.hook.pre-tool-use/run))
+      "post-tool-use"      ((requiring-resolve 'succession.hook.post-tool-use/run))
+      "stop"               ((requiring-resolve 'succession.hook.stop/run))
+      "pre-compact"        ((requiring-resolve 'succession.hook.pre-compact/run))
       (unknown-command "hook" op))
 
     ;; CLI subcommands. Each cli namespace exposes a `run` fn taking
     ;; `[project-root args]`. The dispatcher resolves project-root once.
     "consult"
-    ((requiring-resolve 'succession.identity.cli.consult/run)
+    ((requiring-resolve 'succession.cli.consult/run)
      (project-root) (cons op rest-args))
 
     "replay"
-    ((requiring-resolve 'succession.identity.cli.replay/run)
+    ((requiring-resolve 'succession.cli.replay/run)
      (project-root) op)
 
     "config"
-    ((requiring-resolve 'succession.identity.cli.config-validate/run)
+    ((requiring-resolve 'succession.cli.config-validate/run)
      (project-root) (cons op rest-args))
 
     "install"
-    ((requiring-resolve 'succession.identity.cli.install/run)
+    ((requiring-resolve 'succession.cli.install/run)
      (project-root) (cons op rest-args))
 
     "identity-diff"
-    ((requiring-resolve 'succession.identity.cli.identity-diff/run)
+    ((requiring-resolve 'succession.cli.identity-diff/run)
      (project-root) (cons op rest-args))
 
     "import"
-    ((requiring-resolve 'succession.identity.cli.import/run)
+    ((requiring-resolve 'succession.cli.import/run)
      (project-root) (cons op rest-args))
+
+    ;; Detached drain worker — post-tool-use and stop hooks spawn
+    ;; `bb succession worker drain` after enqueueing. The invocation
+    ;; acquires the worker lock, drains the queue, and exits on idle.
+    "worker"
+    (case op
+      "drain" (System/exit
+                (or ((requiring-resolve 'succession.worker.drain/run!)
+                     (project-root))
+                    0))
+      (unknown-command "worker" op))
 
     (unknown-command "mode" mode)))

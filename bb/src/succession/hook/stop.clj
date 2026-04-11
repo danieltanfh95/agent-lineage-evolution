@@ -1,4 +1,4 @@
-(ns succession.identity.hook.stop
+(ns succession.hook.stop
   "Stop hook — end-of-turn reconcile pass.
 
    Runs when the user's turn ends (the `Stop` hook event). Per plan
@@ -13,29 +13,23 @@
         next promotion.
      4. Rematerialize the staging snapshot so consult's hot-path view
         reflects what reconcile just saw.
-     5. Spawn an async `bb` subprocess for the LLM reconcile lane
-        (categories 2 + 3-at-principle). Subprocess writes its own
-        contradictions + resolutions; parent returns immediately.
+     5. Enqueue an `:llm-reconcile` job so the async drain worker
+        handles categories 2 + 3-at-principle. The worker writes its
+        own contradictions + resolutions; this hook returns
+        immediately.
 
    Critically, Stop does NOT emit `systemMessage` or
    `additionalContext` — plan §PostToolUse and the headless-
    continuation-loop investigation established that emitting reminders
-   at Stop is wasted work (the agent is done for the turn).
-
-   The subprocess recursion guard uses the same
-   SUCCESSION_JUDGE_SUBPROCESS=1 env var as post-tool-use, because the
-   same guard applies: if the reconcile child spawns its own tool
-   calls they must not re-enter the hook pipeline."
-  (:require [babashka.process :as process]
-            [cheshire.core :as json]
-            [clojure.java.io :as io]
+   at Stop is wasted work (the agent is done for the turn)."
+  (:require [cheshire.core :as json]
             [clojure.string :as str]
-            [succession.identity.domain.reconcile :as reconcile]
-            [succession.identity.hook.common :as common]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.contradictions :as store-contra]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.staging :as store-staging]))
+            [succession.domain.reconcile :as reconcile]
+            [succession.hook.common :as common]
+            [succession.store.cards :as store-cards]
+            [succession.store.contradictions :as store-contra]
+            [succession.store.observations :as store-obs]
+            [succession.store.staging :as store-staging]))
 
 ;; ------------------------------------------------------------------
 ;; Pure reconcile pass
@@ -79,93 +73,30 @@
     found))
 
 ;; ------------------------------------------------------------------
-;; Async LLM reconcile lane
-;; ------------------------------------------------------------------
-
-(defn- src-root []
-  (let [here      (System/getProperty "user.dir")
-        candidate (io/file here "bb" "src")]
-    (if (.exists candidate)
-      (.getPath candidate)
-      (or (System/getenv "SUCCESSION_BB_SRC") here))))
-
-(defn spawn-llm-reconcile!
-  "Fork a detached `bb` subprocess that runs
-   `hook.stop/run-llm-reconcile-from-stdin!`. Returns immediately.
-   Never throws — failure just leaves categories 2 + 3-at-principle
-   unresolved until the next Stop."
-  [raw-input]
-  (try
-    (let [env   (assoc (into {} (System/getenv))
-                       "SUCCESSION_JUDGE_SUBPROCESS" "1")
-          child "(require 'succession.identity.hook.stop) (succession.identity.hook.stop/run-llm-reconcile-from-stdin!)"]
-      (process/process
-        {:in        raw-input
-         :out       "/tmp/.succession-identity-reconcile-async.log"
-         :err       "/tmp/.succession-identity-reconcile-async.log"
-         :extra-env env
-         :shutdown  nil}
-        "bb" "-cp" (src-root) "-e" child))
-    (catch Throwable _ nil)))
-
-(defn run-llm-reconcile-from-stdin!
-  "Child-process entrypoint. Loads the parent's pure contradictions +
-   open contradictions and hands off to `llm/reconcile`. Each
-   auto-applicable resolution is marked resolved via
-   `store/contradictions/mark-resolved!`. Non-auto resolutions are
-   left for user escalation (future work — see plan §Reconcile
-   pipeline)."
-  []
-  (try
-    (let [input         (common/read-input)
-          project-root  (common/project-root input)
-          session       (or (:session_id input) "unknown")
-          now           (java.util.Date.)
-          cfg           (common/load-config input)
-          open          (store-contra/open-contradictions project-root)
-          llm-ns        (requiring-resolve 'succession.identity.llm.reconcile/resolve-category-2)
-          llm-p-ns      (requiring-resolve 'succession.identity.llm.reconcile/resolve-category-3-principle)
-          auto-ns       (requiring-resolve 'succession.identity.llm.reconcile/auto-applicable?)]
-      (doseq [c open]
-        (let [cat    (:contradiction/category c)
-              result (cond
-                       (= cat :semantic-opposition)
-                       (when llm-ns (llm-ns {:contradiction c} cfg))
-                       (= cat :principle-violated)
-                       (when llm-p-ns (llm-p-ns {:contradiction c} cfg))
-                       :else nil)]
-          (when (and result (:ok? result) auto-ns
-                     (auto-ns (:resolution result) cfg))
-            (store-contra/mark-resolved! project-root
-                                         (:contradiction/id c)
-                                         :llm-reconcile
-                                         now)))))
-    (catch Throwable _ nil)))
-
-;; ------------------------------------------------------------------
 ;; Public entry
 ;; ------------------------------------------------------------------
 
-(defn- subprocess? []
-  (= "1" (System/getenv "SUCCESSION_JUDGE_SUBPROCESS")))
-
 (defn run
-  "Stop hook entry. Pure reconcile pass + async LLM lane spawn.
-   Emits nothing on stdout — per plan, Stop is a background pass."
+  "Stop hook entry. Pure reconcile pass + enqueue an async
+   :llm-reconcile job. Emits nothing on stdout — per plan, Stop is a
+   background pass."
   []
-  (when-not (subprocess?)
-    (try
-      (let [raw-stdin    (try (slurp *in*) (catch Throwable _ ""))
-            input        (try (if (str/blank? raw-stdin) {}
-                                  (json/parse-string raw-stdin true))
-                              (catch Throwable _ {}))
-            project-root (common/project-root input)
-            session      (or (:session_id input) "unknown")
-            now          (java.util.Date.)
-            cfg          (common/load-config input)]
-        (run-pure-reconcile! project-root session now cfg)
-        (spawn-llm-reconcile! raw-stdin))
-      (catch Throwable t
-        (binding [*out* *err*]
-          (println "succession.identity stop error:" (.getMessage t))))))
+  (try
+    (let [raw-stdin    (try (slurp *in*) (catch Throwable _ ""))
+          input        (try (if (str/blank? raw-stdin) {}
+                                (json/parse-string raw-stdin true))
+                            (catch Throwable _ {}))
+          project-root (common/project-root input)
+          session      (or (:session_id input) "unknown")
+          now          (java.util.Date.)
+          cfg          (common/load-config input)]
+      (run-pure-reconcile! project-root session now cfg)
+      (common/enqueue-and-ensure-worker!
+        project-root cfg
+        {:type    :llm-reconcile
+         :session session
+         :payload {:triggered-at now}}))
+    (catch Throwable t
+      (binding [*out* *err*]
+        (println "succession stop error:" (.getMessage t)))))
   nil)

@@ -1,4 +1,4 @@
-(ns succession.identity.hook.common
+(ns succession.hook.common
   "Shared plumbing used by every hook entry point.
 
    The hook entry contract, per plan §The cycle, hook by hook:
@@ -17,12 +17,17 @@
 
    Reference: `.plans/succession-identity-cycle.md` §Layer split
    (hook/ imports from domain+store+llm), §Data flow."
-  (:require [cheshire.core :as json]
+  (:require [babashka.process :as process]
+            [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.domain.weight :as weight]
-            [succession.identity.store.observations :as store-obs]))
+            [succession.config :as config]
+            [succession.domain.rollup :as rollup]
+            [succession.domain.weight :as weight]
+            [succession.store.jobs :as store-jobs]
+            [succession.store.locks :as locks]
+            [succession.store.observations :as store-obs]
+            [succession.store.paths :as paths]))
 
 ;; ------------------------------------------------------------------
 ;; stdin / stdout
@@ -104,6 +109,67 @@
                      (.getTime ^java.util.Date last-at))
           age-days (max 0.0 (/ age-ms 86400000.0))]
       (max 0.0 (min 1.0 (- 1.0 (/ age-days (double half-life-days))))))))
+
+;; ------------------------------------------------------------------
+;; Async drain worker spawn — shared by post-tool-use and stop
+;; ------------------------------------------------------------------
+
+(defn- src-root
+  "Best-effort location of `bb/src` for the -cp flag. Most project
+   layouts have `<project-root>/bb/src`; fall back to the raw user.dir
+   for dev, or to the `SUCCESSION_BB_SRC` env var when installed."
+  []
+  (let [here      (System/getProperty "user.dir")
+        candidate (io/file here "bb" "src")]
+    (if (.exists candidate)
+      (.getPath candidate)
+      (or (System/getenv "SUCCESSION_BB_SRC") here))))
+
+(defn- worker-already-running?
+  "Cheap check used by the hook path. Returns true when a lock file
+   exists AND its mtime is within the stale window, meaning some
+   other drain worker is alive and draining the queue for us."
+  [project-root stale-seconds]
+  (let [path (paths/jobs-worker-lock project-root)
+        f    (io/file path)]
+    (and (.exists f)
+         (not (locks/stale-at? path stale-seconds)))))
+
+(defn ensure-worker-running!
+  "Spawn `bb succession worker drain` as a detached subprocess unless
+   a live worker is already holding the lock. Returns the babashka
+   process record on spawn, nil if we skipped.
+
+   Never throws — a failed spawn leaves the job on disk, which the
+   next hook invocation will re-try to drain."
+  [project-root config]
+  (let [stale-secs (or (get-in config [:worker/async :stale-lock-seconds]) 60)]
+    (when-not (worker-already-running? project-root stale-secs)
+      (try
+        (process/process
+          {:dir      project-root
+           :out      "/tmp/.succession-drain-worker.log"
+           :err      "/tmp/.succession-drain-worker.log"
+           :shutdown nil}
+          "bb" "-cp" (src-root) "-m" "succession.core" "worker" "drain")
+        (catch Throwable _ nil)))))
+
+(defn enqueue-and-ensure-worker!
+  "Atomic two-step: append a job to the filesystem queue for
+   `project-root`, then make sure a drain worker is alive. The hook
+   is free to return immediately after this — the worker will pick
+   the job up within one scan cycle.
+
+   `job-fields` is the minimal map passed to `store-jobs/make-job`,
+   typically `{:type :judge :session ... :payload ...}`. We attach
+   `:project-root` here so the caller doesn't have to remember."
+  [project-root config job-fields]
+  (try
+    (let [job (store-jobs/make-job (assoc job-fields :project-root project-root))]
+      (store-jobs/enqueue! project-root job)
+      (ensure-worker-running! project-root config)
+      job)
+    (catch Throwable _ nil)))
 
 (defn score-cards
   "Build the `[{:card :weight :recency-fraction}]` shape that salience
