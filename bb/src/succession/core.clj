@@ -64,6 +64,18 @@
     ((requiring-resolve 'succession.cli.identity-diff/run)
      (project-root) (cons op rest-args))
 
+    "show"
+    (System/exit
+      (or ((requiring-resolve 'succession.cli.show/run)
+           (project-root) (cons op rest-args))
+          0))
+
+    "queue"
+    (System/exit
+      (or ((requiring-resolve 'succession.cli.queue/run)
+           (project-root) (cons op rest-args))
+          0))
+
     "import"
     ((requiring-resolve 'succession.cli.import/run)
      (project-root) (cons op rest-args))

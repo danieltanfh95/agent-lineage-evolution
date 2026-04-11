@@ -10,7 +10,21 @@
    vectors in a unit test without tmp dirs or bb subprocess forks.
 
    Reference: async-lane plan §Layer split, §domain/queue.clj."
+  (:require [clojure.stacktrace :as stacktrace])
   (:import (java.util Date)))
+
+(defn format-throwable-trace
+  "Render a throwable's stack trace to a multi-line string. Pure derivation
+   — `with-out-str` captures the print to a local buffer, so this stays
+   I/O-free and safe to call from any layer.
+
+   Centralized here so the in-memory result map and the on-disk
+   `.error.edn` agree on the trace format. Without this, dead-letter
+   files were silently missing the stack and the failure was invisible
+   even after rotting on disk for a full dev day."
+  [throwable]
+  (when throwable
+    (with-out-str (stacktrace/print-stack-trace throwable))))
 
 ;; ------------------------------------------------------------------
 ;; FIFO sorting
@@ -81,7 +95,8 @@
     :result/finished-at  finished-at
     :result/error        (when throwable
                            {:class   (some-> throwable class .getName)
-                            :message (some-> throwable .getMessage)})
+                            :message (some-> throwable .getMessage)
+                            :trace   (format-throwable-trace throwable)})
     :result/side-effects (vec side-effects)}))
 
 (defn classify-result

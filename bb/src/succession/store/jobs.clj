@@ -36,8 +36,10 @@
 
    Reference: async-lane plan §Data shapes and §store/jobs.clj."
   (:require [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [succession.domain.queue :as queue]
             [succession.store.paths :as paths])
   (:import (java.nio.file Files NoSuchFileException Path Paths
                           StandardCopyOption)
@@ -211,6 +213,7 @@
         err-map  {:ex-message (some-> throwable .getMessage)
                   :ex-class   (some-> throwable class .getName)
                   :at         (Date.)
+                  :trace      (queue/format-throwable-trace throwable)
                   :job        (dissoc job :job/file :job/filename)}]
     (try (atomic-move! src dst) (catch Throwable _ nil))
     (spit err-path (pr-str err-map))
@@ -267,3 +270,134 @@
                        (and (.isFile f)
                             (str/ends-with? (.getName f) ".json")))
                      (.listFiles d))))))
+
+;; ------------------------------------------------------------------
+;; Dead-letter inspection / recovery
+;;
+;; The drain worker writes failed jobs to `dead/<filename>.json`
+;; alongside `dead/<stem>.error.edn`. The CLI surfaces under
+;; `bb succession queue` need to enumerate, requeue, and prune those
+;; pairs without dipping into filesystem internals.
+;; ------------------------------------------------------------------
+
+(defn- dead-json-files
+  [project-root]
+  (let [d (io/file (paths/jobs-dead-dir project-root))]
+    (if-not (.exists d)
+      []
+      (->> (.listFiles d)
+           (filter (fn [^java.io.File f]
+                     (and (.isFile f)
+                          (str/ends-with? (.getName f) ".json"))))
+           (sort-by #(.getName ^java.io.File %))
+           vec))))
+
+(defn- read-error-sidecar
+  "Read the `<stem>.error.edn` sibling for a dead job file. Returns nil
+   if missing or unparseable — the EDN is recovery metadata, not the
+   job itself, so a corrupted sidecar should never break enumeration."
+  [^java.io.File job-file]
+  (let [name     (.getName job-file)
+        stem     (if (str/ends-with? name ".json")
+                   (subs name 0 (- (count name) 5))
+                   name)
+        err-file (io/file (.getParentFile job-file) (str stem ".error.edn"))]
+    (when (.exists err-file)
+      (try (edn/read-string {:readers {}} (slurp err-file))
+           (catch Throwable _ nil)))))
+
+(defn list-dead
+  "Return one map per dead-lettered job. Each entry combines the job
+   payload (read fresh from `dead/<filename>.json`) with the sibling
+   `<stem>.error.edn` so the CLI can render `filename | type | session
+   | message` without two reads.
+
+   Shape:
+     {:job/filename  \"20260411T000001000Z-uuid.json\"
+      :job/type      \"judge\"
+      :job/session   \"...\"
+      :job/at        #inst \"...\"     ; from the sidecar (failure time)
+      :error/message \"...\"
+      :error/class   \"...\"
+      :error/trace   \"...\"           ; nil for jobs that died before
+                                       ; the trace-capture fix landed
+      :job/payload   {...}}"
+  [project-root]
+  (->> (dead-json-files project-root)
+       (mapv (fn [^java.io.File f]
+               (let [job (or (read-job-file f) {})
+                     err (read-error-sidecar f)]
+                 {:job/filename  (.getName f)
+                  :job/type      (:job/type job)
+                  :job/session   (:job/session job)
+                  :job/at        (:at err)
+                  :error/message (:ex-message err)
+                  :error/class   (:ex-class err)
+                  :error/trace   (:trace err)
+                  :job/payload   (:job/payload job)})))))
+
+(defn count-dead
+  "Fast count of dead-lettered jobs, parallel to count-pending /
+   count-inflight."
+  [project-root]
+  (count (dead-json-files project-root)))
+
+(defn requeue!
+  "Move `dead/<filename>.json` back into `jobs/<filename>` and delete
+   the sibling `<stem>.error.edn`. Filename is preserved so the
+   re-queued job sorts in its original FIFO position rather than
+   jumping to the head.
+
+   Returns the new `jobs/` path on success, nil if the dead file does
+   not exist (e.g. already requeued or cleared by another caller)."
+  [project-root filename]
+  (let [src      (str (paths/jobs-dead-dir project-root) "/" filename)
+        src-file (io/file src)]
+    (when (.exists src-file)
+      (let [_   (paths/ensure-dir! (paths/jobs-dir project-root))
+            dst (paths/job-file project-root filename)
+            stem (if (str/ends-with? filename ".json")
+                   (subs filename 0 (- (count filename) 5))
+                   filename)
+            err  (io/file (paths/jobs-dead-dir project-root)
+                          (str stem ".error.edn"))]
+        (atomic-move! src dst)
+        (try (Files/deleteIfExists (as-path (.getAbsolutePath err)))
+             (catch Throwable _ nil))
+        dst))))
+
+(defn requeue-all!
+  "Requeue every dead-lettered job. Returns the count moved. Used by
+   `bb succession queue requeue --all`."
+  [project-root]
+  (reduce (fn [n ^java.io.File f]
+            (if (requeue! project-root (.getName f))
+              (inc n)
+              n))
+          0
+          (dead-json-files project-root)))
+
+(defn clear-dead!
+  "Delete dead-letter pairs (the `.json` and the sibling `.error.edn`).
+
+   When `older-than-ms` is non-nil, only remove pairs whose `.json`
+   mtime is older than that many milliseconds. Pass nil (or zero) to
+   wipe everything. Returns the count of `.json` files deleted."
+  [project-root older-than-ms]
+  (let [now-ms (System/currentTimeMillis)
+        cutoff (or older-than-ms 0)]
+    (reduce
+      (fn [n ^java.io.File f]
+        (if (or (zero? cutoff)
+                (> (- now-ms (.lastModified f)) cutoff))
+          (let [name (.getName f)
+                stem (if (str/ends-with? name ".json")
+                       (subs name 0 (- (count name) 5))
+                       name)
+                err  (io/file (.getParentFile f) (str stem ".error.edn"))]
+            (try (.delete f) (catch Throwable _ nil))
+            (try (.delete err) (catch Throwable _ nil))
+            (inc n))
+          n))
+      0
+      (dead-json-files project-root))))

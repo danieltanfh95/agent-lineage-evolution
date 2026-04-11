@@ -66,4 +66,13 @@
                              ex started finished nil)]
     (is (= :error (queue/classify-result r)))
     (is (= "boom" (get-in r [:result/error :message])))
-    (is (some? (get-in r [:result/error :class])))))
+    (is (some? (get-in r [:result/error :class])))
+    (testing "the error map carries a non-empty stack trace so silent
+              dead-letters cannot recur"
+      (let [trace (get-in r [:result/error :trace])]
+        (is (string? trace))
+        (is (pos? (count trace)))
+        (is (.contains ^String trace "boom"))))))
+
+(deftest format-throwable-trace-nil-safe-test
+  (is (nil? (queue/format-throwable-trace nil))))

@@ -164,6 +164,53 @@ args.
 
 Reference: `bb/src/succession/cli/identity_diff.clj`.
 
+### show
+
+Pretty-print the live promoted identity — the same rendering
+SessionStart serves as `additionalContext`, on demand.
+
+```
+bb -m succession.core show [--format markdown|edn]
+```
+
+- `--format markdown` (default) — tiered tree under `## Principles /
+  Rules / Ethics`, same renderer as SessionStart.
+- `--format edn` — one `pr-str` map per card, one per line. Round-
+  trips via `read-string`, suitable for piping into other tooling.
+
+Exit 0 on success. Empty store prints `_No promoted identity cards
+yet._` and still returns 0.
+
+Reference: `bb/src/succession/cli/show.clj`.
+
+### queue
+
+Inspect and recover the async job queue (see the Async job queue
+section below for context on what the queue is and when it goes
+wrong).
+
+```
+bb -m succession.core queue <status | list-dead | requeue | clear-dead>
+```
+
+Subcommands:
+
+- **`status`** — one-line counters: `N pending · N inflight · N dead
+  · <lock-state>`. If `dead > 0`, a hint points at `list-dead`.
+- **`list-dead`** — tabular view of dead-lettered jobs with filename,
+  type, session, and the first line of the exception message. The
+  full stack trace lives in the sibling `.error.edn` under `:trace`.
+- **`requeue <filename>`** — move one dead job back to `jobs/`.
+  Filename is preserved so the job keeps its original FIFO position.
+- **`requeue --all`** — same, for every dead job.
+- **`clear-dead`** — delete every dead pair.
+- **`clear-dead --older-than <N(s|m|h|d)>`** — only delete pairs
+  whose on-disk mtime is older than the cutoff (e.g. `7d`, `12h`).
+
+Exit 0 on success, 1 on invalid usage or unknown subcommand.
+
+Reference: `bb/src/succession/cli/queue.clj`.
+
 ### import
 
 One-shot migration of an old `.succession/rules/*.md` YAML-frontmatter
@@ -423,15 +470,22 @@ drain` process is alive to drain it. The worker self-exits after
 
 **If async work isn't landing, check:**
 
-- `.succession/staging/jobs/*.json` — pending jobs
-- `.succession/staging/jobs/.inflight/*.json` — claimed by a worker
-- `.succession/staging/jobs/dead/*.json` — failed jobs; each has a
-  sibling `.error.edn` with the exception snapshot. Re-queue by
-  moving the `.json` back to `.succession/staging/jobs/`.
-- `.succession/staging/jobs/.worker.lock` — at-most-one worker
-  guarantee. A lock older than `:stale-lock-seconds` (default 60s) is
-  cleared automatically by the next hook invocation.
+- `bb succession queue status` — one-line counters (pending / inflight
+  / dead) plus `.worker.lock` state. This is the fastest way to tell
+  whether jobs are piling up or draining cleanly.
+- `bb succession queue list-dead` — tabular view of dead-lettered jobs
+  with the first line of each exception message. Sibling `.error.edn`
+  files carry the full stack trace under `:trace`.
+- `bb succession queue requeue <filename>` or `requeue --all` — move
+  dead jobs back to `jobs/` for another attempt (filename preserved,
+  so FIFO order is retained). Use this after fixing a bug that dead-
+  lettered a batch.
+- `bb succession queue clear-dead [--older-than 7d]` — delete dead
+  pairs you've decided you don't want to replay.
 - `/tmp/.succession-drain-worker.log` — worker stdout/stderr.
+
+A lock older than `:stale-lock-seconds` (default 60s) is cleared
+automatically by the next hook invocation.
 
 **Config (`.succession/config.edn`, under `:worker/async`):**
 

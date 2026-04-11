@@ -1,8 +1,8 @@
-(ns succession.identity.llm.judge-test
+(ns succession.llm.judge-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.domain.card :as card]
-            [succession.identity.llm.judge :as judge]))
+            [succession.domain.card :as card]
+            [succession.llm.judge :as judge]))
 
 (defn- a-card
   [{:keys [id tier category fingerprint]
@@ -32,6 +32,43 @@
       (is (str/includes? prompt "[rule]"))
       (is (str/includes? prompt "[principle]"))
       (is (str/includes? prompt "git push --force")))))
+
+(deftest tool-prompt-handles-map-shaped-response-test
+  (testing "Claude Code passes structured maps as tool-response; the prompt
+            builder must not throw ClassCastException on them"
+    (let [cards  [(a-card {:id "prefer-edit" :tier :rule})]
+          prompt (judge/build-tool-prompt
+                   {:tool-name "Read"
+                    :tool-input {:file_path "/x/y.clj"}
+                    :tool-response {:type "text"
+                                    :file {:filePath "/x/y.clj"
+                                           :content "(ns foo)"}}
+                    :cards cards})]
+      (is (string? prompt))
+      (is (str/includes? prompt "prefer-edit"))
+      (is (str/includes? prompt "/x/y.clj"))
+      (is (str/includes? prompt "response (truncated)"))))
+  (testing "tool-input as a map is also coerced safely"
+    (let [prompt (judge/build-tool-prompt
+                   {:tool-name "Bash"
+                    :tool-input {:command "ls -la"
+                                 :description "list files"}
+                    :tool-response nil
+                    :cards []})]
+      (is (string? prompt))
+      (is (str/includes? prompt "ls -la")))))
+
+(deftest turn-prompt-handles-map-shaped-inputs-test
+  (let [prompt (judge/build-turn-prompt
+                 {:tool-uses [{:tool-name "Edit"
+                               :tool-input {:file_path "foo.clj"
+                                            :old_string "a" :new_string "b"}}
+                              {:tool-name "Bash"
+                               :tool-input {:command "ls"}}]
+                  :cards [(a-card {:id "c1" :tier :rule})]})]
+    (is (string? prompt))
+    (is (str/includes? prompt "foo.clj"))
+    (is (str/includes? prompt "ls"))))
 
 (deftest turn-prompt-lists-tool-uses-test
   (let [prompt (judge/build-turn-prompt

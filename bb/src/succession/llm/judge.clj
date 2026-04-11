@@ -1,4 +1,4 @@
-(ns succession.identity.llm.judge
+(ns succession.llm.judge
   "LLM judge ported to the identity data model.
 
    The judge witnesses a tool call (or a full turn), scores it against
@@ -23,12 +23,26 @@
    Reference: `.plans/succession-identity-cycle.md` §Observation,
    §PostToolUse (async judge lane)."
   (:require [clojure.string :as str]
-            [succession.identity.llm.claude :as claude]
-            [succession.identity.domain.observation :as obs]))
+            [succession.llm.claude :as claude]
+            [succession.domain.observation :as obs]))
 
 ;; ------------------------------------------------------------------
 ;; Prompt construction
 ;; ------------------------------------------------------------------
+
+(defn- coerce-prompt-text
+  "Coerce an arbitrary tool-input / tool-response value into a readable
+   string for the judge prompt. Claude Code passes tool inputs/outputs
+   as structured maps (Bash output, Read file content, etc.), not plain
+   strings — calling `subs` on a map would throw
+   ClassCastException. `pr-str` emits EDN that the judge LLM can still
+   parse, which is strictly better than
+   `clojure.lang.PersistentArrayMap@...` from plain `str`."
+  [v]
+  (cond
+    (string? v) v
+    (nil? v)    ""
+    :else       (pr-str v)))
 
 (def ^:private verdict-schema
   "{\"card_id\":\"<id from active cards, or \\\"none\\\">\",
@@ -59,8 +73,8 @@
      :cards     - seq of currently promoted identity cards"
   [{:keys [tool-name tool-input tool-response cards]}]
   (let [digest    (render-card-digest cards)
-        input-str (str tool-input)
-        resp-str  (or tool-response "")]
+        input-str (coerce-prompt-text tool-input)
+        resp-str  (coerce-prompt-text tool-response)]
     (str
       "You are the conscience of an agent whose IDENTITY is the cards below. "
       "Score this ONE tool call against them. Do NOT second-guess the agent's "
@@ -100,7 +114,7 @@
       (str/join "\n"
                 (map-indexed
                   (fn [i tu]
-                    (let [s (str (:tool-input tu))]
+                    (let [s (coerce-prompt-text (:tool-input tu))]
                       (str (inc i) ". " (:tool-name tu) " "
                            (subs s 0 (min 400 (count s))))))
                   tool-uses))

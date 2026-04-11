@@ -98,6 +98,8 @@ bb -m succession.core consult "<situation>"   # reflective self-consult
 bb -m succession.core replay <transcript>     # re-run hooks over a jsonl
 bb -m succession.core config validate         # check config.edn
 bb -m succession.core identity-diff           # diff promoted vs archive snapshot
+bb -m succession.core show                    # print live promoted identity
+bb -m succession.core queue <op>              # inspect/recover async job queue
 ```
 
 ## Directory layout

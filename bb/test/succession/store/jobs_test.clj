@@ -1,5 +1,7 @@
 (ns succession.store.jobs-test
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
             [succession.store.jobs :as jobs]
             [succession.store.paths :as paths]
@@ -96,6 +98,92 @@
         (is (= 2 (count names)))
         (is (some #(clojure.string/ends-with? % ".json") names))
         (is (some #(clojure.string/ends-with? % ".error.edn") names))))))
+
+(deftest dead-letter-error-edn-includes-trace-test
+  (testing "the .error.edn sidecar includes the stack trace, so future
+            silent failures can never recur"
+    (jobs/enqueue! *root* (jobs/make-job {:type :judge :session "s1"
+                                          :project-root *root* :payload {}}))
+    (let [[job] (jobs/list-pending *root*)
+          _     (jobs/claim! *root* (:job/filename job))
+          err   (ex-info "boom-with-trace" {:why :test})]
+      (jobs/dead-letter! *root* (:job/filename job) job err)
+      (let [dead-dir (io/file (paths/jobs-dead-dir *root*))
+            err-file (->> (.listFiles dead-dir)
+                          (filter #(clojure.string/ends-with? (.getName ^java.io.File %)
+                                                              ".error.edn"))
+                          first)
+            data (edn/read-string {:readers {}} (slurp err-file))]
+        (is (= "boom-with-trace" (:ex-message data)))
+        (is (string? (:trace data)))
+        (is (pos? (count (:trace data))))
+        (is (.contains ^String (:trace data) "boom-with-trace"))))))
+
+;; ------------------------------------------------------------------
+;; Dead-letter inspection / recovery
+;; ------------------------------------------------------------------
+
+(defn- seed-dead-job!
+  "Helper: enqueue a job, claim it, dead-letter it. Returns the dead
+   filename so the test can address it directly."
+  [session]
+  (jobs/enqueue! *root* (jobs/make-job {:type :judge :session session
+                                        :project-root *root* :payload {}}))
+  (let [[job] (jobs/list-pending *root*)]
+    (jobs/claim! *root* (:job/filename job))
+    (jobs/dead-letter! *root* (:job/filename job) job (ex-info "boom" {}))
+    (:job/filename job)))
+
+(deftest list-dead-test
+  (testing "list-dead enumerates dead jobs and merges sidecar metadata"
+    (seed-dead-job! "s1")
+    (Thread/sleep 5)
+    (seed-dead-job! "s2")
+    (let [dead (jobs/list-dead *root*)]
+      (is (= 2 (count dead)))
+      (is (= ["s1" "s2"] (sort (map :job/session dead))))
+      (is (every? :error/message dead))
+      (is (every? :error/trace dead))
+      (is (every? #(= "boom" (:error/message %)) dead))
+      (is (= 2 (jobs/count-dead *root*))))))
+
+(deftest requeue-test
+  (testing "requeue! moves a single dead job back into jobs/, drops sidecar"
+    (let [fname (seed-dead-job! "s1")
+          new-path (jobs/requeue! *root* fname)]
+      (is (some? new-path))
+      (is (= 1 (jobs/count-pending *root*)))
+      (is (= 0 (jobs/count-dead *root*)))
+      (let [pending (first (jobs/list-pending *root*))]
+        ;; filename preserved → original FIFO position retained
+        (is (= fname (:job/filename pending))))
+      ;; sidecar must be gone
+      (let [dead-dir (io/file (paths/jobs-dead-dir *root*))]
+        (is (zero? (count (filter #(clojure.string/ends-with? (.getName ^java.io.File %)
+                                                              ".error.edn")
+                                  (.listFiles dead-dir))))))))
+  (testing "requeue! on a missing filename returns nil, no throw"
+    (is (nil? (jobs/requeue! *root* "nope.json")))))
+
+(deftest requeue-all-test
+  (testing "requeue-all! moves every dead job"
+    (seed-dead-job! "s1") (Thread/sleep 5)
+    (seed-dead-job! "s2") (Thread/sleep 5)
+    (seed-dead-job! "s3")
+    (is (= 3 (jobs/requeue-all! *root*)))
+    (is (= 3 (jobs/count-pending *root*)))
+    (is (= 0 (jobs/count-dead *root*)))))
+
+(deftest clear-dead-test
+  (testing "clear-dead! with nil cutoff wipes everything"
+    (seed-dead-job! "s1") (Thread/sleep 5)
+    (seed-dead-job! "s2")
+    (is (= 2 (jobs/clear-dead! *root* nil)))
+    (is (= 0 (jobs/count-dead *root*))))
+  (testing "clear-dead! with a cutoff older than any file is a no-op"
+    (seed-dead-job! "s3")
+    (is (= 0 (jobs/clear-dead! *root* (* 60 60 1000))))
+    (is (= 1 (jobs/count-dead *root*)))))
 
 ;; ------------------------------------------------------------------
 ;; Inflight sweep
