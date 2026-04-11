@@ -18,6 +18,8 @@
             [succession.identity.config :as config]
             [succession.identity.domain.consult :as consult]
             [succession.identity.domain.render :as render]
+            [succession.identity.domain.rollup :as rollup]
+            [succession.identity.domain.weight :as weight]
             [succession.identity.llm.claude :as claude]
             [succession.identity.domain.observation :as dom-obs]
             [succession.identity.store.cards :as store-cards]
@@ -78,13 +80,39 @@
     (when (or tool input)
       (str "tool=" (or tool "?") (when input (str ",input=" input))))))
 
-(defn- cards-to-scored
-  "Wrap each card in the shape domain/consult wants. Weight and
-   recency are 0 at CLI time — we're not recomputing weight here.
-   A full implementation would read per-card observation rollups
-   and pass real weights through. Start simple."
-  [cards]
-  (mapv (fn [c] {:card c :weight 0.0 :recency-fraction 0.0}) cards))
+(defn- recency-fraction
+  "Map the card's most-recent observation to a 0..1 fraction. 1 = just
+   observed, 0 = older than the decay half-life. This is the input
+   salience wants — the weight formula already bakes decay in, so
+   recency here is a separate signal for ranking freshness."
+  [rollup-map now half-life-days]
+  (if (empty? rollup-map)
+    0.0
+    (let [last-at (reduce #(if (pos? (compare %1 %2)) %1 %2)
+                          (map :session/last-at (vals rollup-map)))
+          age-ms  (- (.getTime ^java.util.Date now)
+                     (.getTime ^java.util.Date last-at))
+          age-days (max 0.0 (/ age-ms 86400000.0))]
+      (max 0.0 (min 1.0 (- 1.0 (/ age-days (double half-life-days))))))))
+
+(defn cards-to-scored
+  "Fold observation rollups into the `{:card :weight :recency-fraction}`
+   shape salience/consult consume. Reads observations from disk once
+   (all sessions) and groups by card id. Cards with no observations
+   get weight 0 / recency 0 — they still appear in the candidate pool
+   at tier-baseline score, which is the right behavior for newly born
+   cards that have not yet accumulated evidence."
+  [project-root cards config now]
+  (let [all-obs   (store-obs/load-all-observations project-root)
+        by-card   (store-obs/observations-by-card all-obs)
+        half-life (or (:weight/decay-half-life-days config) 180)]
+    (mapv (fn [c]
+            (let [obs    (get by-card (:card/id c) [])
+                  rollup (rollup/rollup-by-session obs)
+                  w      (weight/compute rollup now config)
+                  r      (recency-fraction rollup now half-life)]
+              {:card c :weight w :recency-fraction r}))
+          cards)))
 
 ;; ------------------------------------------------------------------
 ;; Prompt framing
@@ -184,7 +212,7 @@
                        :situation/tool-descriptor   (build-tool-descriptor opts)
                        :situation/contradictions    (store-contra/open-contradictions project-root)}
 
-        consult-result (consult/query (cards-to-scored filtered)
+        consult-result (consult/query (cards-to-scored project-root filtered config-map now)
                                       situation-map
                                       config-map)
         view-md   (render/consult-view consult-result)

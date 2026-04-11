@@ -1,6 +1,7 @@
 (ns succession.identity.cli.consult-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [succession.identity.config :as config]
             [succession.identity.cli.consult :as consult-cli]
             [succession.identity.store.cards :as store-cards]
             [succession.identity.store.observations :as store-obs]
@@ -67,3 +68,35 @@
 (deftest blank-situation-throws-test
   (is (thrown? Exception
                (consult-cli/run *root* ["--dry-run"]))))
+
+(deftest cards-to-scored-reads-real-weights-test
+  (testing "cards-to-scored produces non-zero weight for a card with observations"
+    (let [heavy (h/a-card {:id "heavy" :tier :rule})
+          light (h/a-card {:id "light" :tier :rule})
+          _     (store-cards/write-card! *root* heavy)
+          _     (store-cards/write-card! *root* light)
+          _     (store-cards/materialize-promoted! *root*)
+          ;; Seed 'heavy' with three observations across three sessions and
+          ;; a real time span; 'light' gets only one observation same-session.
+          _     (doseq [[sess ts]
+                        [["hs1" #inst "2026-01-05T10:00:00Z"]
+                         ["hs2" #inst "2026-02-10T10:00:00Z"]
+                         ["hs3" #inst "2026-03-20T10:00:00Z"]]]
+                  (store-obs/write-observation! *root*
+                    (h/an-observation {:id (str "obs-heavy-" sess)
+                                       :at ts :session sess
+                                       :card-id "heavy"})))
+          _     (store-obs/write-observation! *root*
+                  (h/an-observation {:id "obs-light-1"
+                                     :at #inst "2026-03-20T10:00:00Z"
+                                     :session "ls1"
+                                     :card-id "light"}))
+          now   #inst "2026-04-01T00:00:00Z"
+          scored (consult-cli/cards-to-scored
+                   *root* [heavy light] config/default-config now)
+          by-id  (into {} (map (juxt (comp :card/id :card) identity)) scored)]
+      (is (pos? (:weight (get by-id "heavy"))))
+      (is (pos? (:weight (get by-id "light"))))
+      (is (> (:weight (get by-id "heavy"))
+             (:weight (get by-id "light")))
+          "heavy card (3 sessions, span) should outweigh single-observation light card"))))
