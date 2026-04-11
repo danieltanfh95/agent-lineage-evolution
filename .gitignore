@@ -10,3 +10,5 @@ __pycache__/
 .plans/
 .clj-kondo/
 .lsp/
+.succession/
+bb/.succession/
