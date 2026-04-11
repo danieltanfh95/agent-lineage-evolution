@@ -1,9 +1,0 @@
-{
-  "condition": "soul-extract",
-  "compact_model": "haiku",
-  "extract_model": "haiku",
-  "extract": true,
-  "reader_model": "opus",
-  "compact_every": 1,
-  "description": "Two-stage: Haiku extracts facts, then Haiku merges into memory. Tests if structured pre-processing fixes Haiku's compaction failure."
-}

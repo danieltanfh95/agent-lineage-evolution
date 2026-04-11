@@ -1,5 +1,0 @@
-{
-  "condition": "full-context",
-  "reader_model": "opus",
-  "description": "Full conversation history in context. Oracle upper bound, limited by context window."
-}

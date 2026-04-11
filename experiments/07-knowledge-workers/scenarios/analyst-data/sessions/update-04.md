@@ -1,1 +1,0 @@
-From now on, I prefer tables over bullet points when presenting data comparisons or results summaries. Please update my preferences.

@@ -1,7 +1,0 @@
-{
-  "condition": "soul",
-  "compact_model": "sonnet46",
-  "reader_model": "opus",
-  "compact_every": 1,
-  "description": "SOUL compaction with Sonnet 4.6 (extended thinking). Tests if reasoning improves compaction quality."
-}

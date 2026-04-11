@@ -1,1 +1,0 @@
-Draft the requirements for adding a mobile-responsive dashboard to Athena. Focus on what metrics should be visible on mobile vs desktop.

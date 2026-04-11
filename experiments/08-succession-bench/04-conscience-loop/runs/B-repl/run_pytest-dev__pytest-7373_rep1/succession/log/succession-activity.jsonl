@@ -1,4 +1,0 @@
-{"timestamp":"2026-04-10T10:11:50.109866Z","session":"1da74616-30bd-4cae-a9cf-24eb8c10069f","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
-{"timestamp":"2026-04-10T10:13:30.549907Z","session":"ba5e21fe-7ed0-476d-ae44-e0ba47cd5554","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
-{"timestamp":"2026-04-10T10:13:30.625447Z","session":"250cf69d-2658-4855-b8e3-6574d57a4260","event":"session_start","mechanical_rules":0,"skills_loaded":"replsh"}
-{"timestamp":"2026-04-10T10:13:34.421813Z","session":"1da74616-30bd-4cae-a9cf-24eb8c10069f","event":"extraction_failed","turn":1,"error":"Invalid JSON from extraction"}

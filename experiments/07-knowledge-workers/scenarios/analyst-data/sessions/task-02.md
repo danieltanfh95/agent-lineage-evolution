@@ -1,1 +1,0 @@
-Write a SQL query to find the top 10 users by revenue in the last 30 days. I need this for the weekly ops report.

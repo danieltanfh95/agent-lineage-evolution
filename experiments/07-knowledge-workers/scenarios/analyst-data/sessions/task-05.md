@@ -1,1 +1,0 @@
-Analyze the difference between our fiscal Q1 (April-June) and Q2 (July-September) revenue. What metrics should I compare and how should I structure the executive summary?

@@ -1,1 +1,0 @@
-Write a brief product spec for adding a "team benchmarking" feature to Athena. This feature would let HR teams compare their metrics against industry averages.
