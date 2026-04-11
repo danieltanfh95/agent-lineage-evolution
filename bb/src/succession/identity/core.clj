@@ -23,8 +23,11 @@
     (println (format "unknown %s command: %s" kind name)))
   (System/exit 2))
 
+(defn- project-root []
+  (or (System/getProperty "user.dir") "."))
+
 (defn -main
-  "Dispatch on first two args: mode (`hook` | `cli` subcommand-name) then op."
+  "Dispatch on first two args: mode (`hook` | cli subcommand-name) then op."
   [& [mode op & rest-args]]
   (case mode
     "hook"
@@ -39,21 +42,18 @@
       "pre-compact"        ((requiring-resolve 'succession.identity.hook.pre-compact/run))
       (unknown-command "hook" op))
 
-    ;; CLI subcommands. Each cli namespace exposes a `run` fn taking a
-    ;; vector of remaining args.
+    ;; CLI subcommands. Each cli namespace exposes a `run` fn taking
+    ;; `[project-root args]`. The dispatcher resolves project-root once.
     "consult"
-    (apply (requiring-resolve 'succession.identity.cli.consult/run) (cons op rest-args))
+    ((requiring-resolve 'succession.identity.cli.consult/run)
+     (project-root) (cons op rest-args))
 
     "replay"
-    (apply (requiring-resolve 'succession.identity.cli.replay/run) (cons op rest-args))
+    ((requiring-resolve 'succession.identity.cli.replay/run)
+     (project-root) op)
 
     "config"
-    (apply (requiring-resolve 'succession.identity.cli.config-validate/run) (cons op rest-args))
-
-    "identity-diff"
-    (apply (requiring-resolve 'succession.identity.cli.identity-diff/run) (cons op rest-args))
-
-    "import"
-    (apply (requiring-resolve 'succession.identity.cli.import/run) (cons op rest-args))
+    ((requiring-resolve 'succession.identity.cli.config-validate/run)
+     (project-root) (cons op rest-args))
 
     (unknown-command "mode" mode)))
