@@ -1,2 +1,11 @@
 {:paths ["src" "test"]
- :min-bb-version "1.0.0"}
+ :min-bb-version "1.0.0"
+
+ ;; Task aliases so `bb succession <...>` works anywhere the project
+ ;; bb.edn is visible. The task forwards its positional args to
+ ;; `succession.identity.core/-main`.
+ :tasks
+ {succession
+  {:doc "Run a Succession CLI or hook via `bb succession <mode> <op> ...`"
+   :requires ([succession.identity.core :as core])
+   :task (apply core/-main *command-line-args*)}}}

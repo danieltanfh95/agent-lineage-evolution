@@ -56,4 +56,8 @@
     ((requiring-resolve 'succession.identity.cli.config-validate/run)
      (project-root) (cons op rest-args))
 
+    "install"
+    ((requiring-resolve 'succession.identity.cli.install/run)
+     (project-root) (cons op rest-args))
+
     (unknown-command "mode" mode)))
