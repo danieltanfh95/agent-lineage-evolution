@@ -60,4 +60,12 @@
     ((requiring-resolve 'succession.identity.cli.install/run)
      (project-root) (cons op rest-args))
 
+    "identity-diff"
+    ((requiring-resolve 'succession.identity.cli.identity-diff/run)
+     (project-root) (cons op rest-args))
+
+    "import"
+    ((requiring-resolve 'succession.identity.cli.import/run)
+     (project-root) (cons op rest-args))
+
     (unknown-command "mode" mode)))
