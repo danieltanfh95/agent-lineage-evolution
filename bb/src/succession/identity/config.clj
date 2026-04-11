@@ -83,6 +83,20 @@
    {:model           "claude-sonnet-4-6"
     :timeout-seconds 60}
 
+   ;; --- Correction detection (UserPromptSubmit) ---
+   ;; Regex patterns are matched against the raw user prompt text.
+   ;; A hit writes a :contradicted observation and a :mark-contradiction
+   ;; delta. Patterns are intentionally broad — false positives are fine
+   ;; because the extract LLM filters downstream.
+   :correction/patterns
+   ["(?i)\\bno,?\\s+(?:use|do|try)\\b"
+    "(?i)\\bstop\\s+\\w+ing\\b"
+    "(?i)\\bdon'?t\\s+\\w+"
+    "(?i)\\bactually[,.]?\\s"
+    "(?i)\\bthat'?s\\s+(?:wrong|not\\s+right)\\b"
+    "(?i)\\binstead[,.]?\\s"
+    "(?i)\\bnot\\s+that\\b"]
+
    ;; --- Retention ---
    :retention/raw-observations-sessions 50
 
