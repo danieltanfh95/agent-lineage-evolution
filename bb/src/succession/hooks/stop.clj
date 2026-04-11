@@ -16,15 +16,18 @@
             [succession.resolve :as resolve]
             [succession.yaml :as yaml]
             [succession.effectiveness :as eff]
-            [succession.activity :as activity]))
+            [succession.activity :as activity]
+            [succession.reinject :as reinject]
+            [succession.judge :as judge]
+            [succession.config :as config]))
 
 ;; --- Config ---
 
+;; Legacy default kept for tests; canonical source is succession.config/defaults.
 (def default-config
   {:model "sonnet"
    :correctionModel "sonnet"
    :extractEveryKTokens 80000
-   :reinjectionInterval 10
    :debug false})
 
 (def correction-keywords
@@ -38,10 +41,7 @@
    "opus"   "claude-opus-4-6"})
 
 (defn load-config []
-  (let [config-file (str (System/getProperty "user.home") "/.succession/config.json")]
-    (if (fs/exists? config-file)
-      (merge default-config (json/parse-string (slurp config-file) true))
-      default-config)))
+  (config/load-config))
 
 ;; --- Helpers ---
 
@@ -122,6 +122,44 @@
 
 ;; --- Extraction helpers ---
 
+(defn extract-last-turn-tool-uses
+  "Scan backwards through the transcript to collect tool uses from the
+   most recent assistant message batch — i.e. everything since the last
+   'human' entry. Returns a vec of {:tool-name :tool-input} maps.
+   Capped at 20 entries so the judge prompt stays bounded."
+  [transcript-path]
+  (when (and transcript-path (fs/exists? transcript-path))
+    (try
+      (let [lines (vec (str/split-lines (slurp transcript-path)))
+            ;; Walk from end back to the last human message
+            last-human-idx (loop [i (dec (count lines))]
+                             (cond
+                               (neg? i) -1
+                               :else
+                               (let [entry (try (json/parse-string (nth lines i) true)
+                                                (catch Exception _ nil))]
+                                 (if (= "human" (:type entry))
+                                   i
+                                   (recur (dec i))))))
+            tail (subvec lines (inc (max 0 last-human-idx)))]
+        (->> tail
+             (keep (fn [line]
+                     (try
+                       (let [entry (json/parse-string line true)
+                             content (get-in entry [:message :content])]
+                         (when (and (= "assistant" (:type entry))
+                                    (vector? content))
+                           (keep (fn [part]
+                                   (when (= "tool_use" (:type part))
+                                     {:tool-name (:name part)
+                                      :tool-input (:input part)}))
+                                 content)))
+                       (catch Exception _ nil))))
+             (mapcat identity)
+             (take-last 20)
+             vec))
+      (catch Exception _ []))))
+
 (defn extract-transcript-window
   "Read a window of the transcript file, extracting USER/ASSISTANT messages.
    Returns a string of formatted messages, capped at cap-bytes."
@@ -167,9 +205,17 @@
 3. PREFERENCES — how the user wants to work (tone, process, style)
 
 For each pattern, determine the enforcement tier:
-- \"mechanical\" — can be enforced by blocking a specific tool or bash pattern (e.g., \"never force-push\" → block 'git push --force')
-- \"semantic\" — requires LLM judgment to enforce (e.g., \"use Edit instead of sed for source files\")
-- \"advisory\" — can only be reminded, not enforced (e.g., \"prefer concise responses\")
+- \"mechanical\" — RESERVED FOR IRREVERSIBLE-OPS ONLY. Use this tier exclusively
+  for patterns on the non-negotiable floor list: destructive bash (rm -rf /, rm
+  -rf $HOME), git push --force to protected branches (main/master/prod),
+  unconstrained destructive SQL (DROP/TRUNCATE/DELETE without WHERE), or
+  credential write/exfil patterns. If the pattern does not match that list,
+  PREFER \"semantic\" even when a bash regex could plausibly enforce it — the
+  conscience-layer LLM judge handles those cases with better accuracy.
+- \"semantic\" — DEFAULT CHOICE for anything that requires judgment (e.g., \"use
+  Edit instead of sed for source files\", \"block unnecessary Bash when a
+  dedicated tool exists\").
+- \"advisory\" — can only be reminded, not enforced (e.g., \"prefer concise responses\").
 
 For each pattern, classify into one of four knowledge categories:
 - \"strategy\" — how the agent approaches problems (workflow patterns, methodologies)
@@ -223,7 +269,9 @@ Rules:
         rules-dir (str project-dir "/rules")
         compiled-dir (str project-dir "/compiled")
         correction-model-id (get model-ids (:correctionModel config) "claude-sonnet-4-6")
-        reinjection-interval (:reinjectionInterval config 10)
+        reinject-cfg (:reinject config {})
+        byte-threshold (:byteThreshold reinject-cfg 204800)
+        turn-threshold (:turnThreshold reinject-cfg 10)
 
         ;; State files
         turn-file (str "/tmp/.succession-turns-" session_id)
@@ -239,8 +287,10 @@ Rules:
         notification-msg (atom nil)
         additional-context (atom nil)]
 
-    ;; Guard: bail if no transcript
-    (when (and transcript_path (fs/exists? transcript_path))
+    ;; Guard: bail if no transcript. Empty string is truthy in Clojure so
+    ;; must be excluded explicitly; otherwise fs/exists? throws on "".
+    (when (and (not (str/blank? transcript_path))
+               (fs/exists? transcript_path))
       (fs/create-dirs rules-dir)
       (fs/create-dirs compiled-dir)
       (fs/create-dirs (str project-dir "/log"))
@@ -401,13 +451,16 @@ Rules:
                   (fs/delete correction-flag-file)))))))
 
       ;; ========================================
-      ;; PHASE 3: ADVISORY RE-INJECTION
+      ;; PHASE 3: ADVISORY RE-INJECTION (hybrid trigger)
+      ;; Fires on whichever comes first: transcript grown past
+      ;; byteThreshold, OR turn-count advanced by turnThreshold since the
+      ;; last fire. State lives in /tmp per session.
       ;; ========================================
-      (when (zero? (mod turn-count reinjection-interval))
-        (let [advisory-file (str compiled-dir "/advisory-summary.md")]
-          (when (and (fs/exists? advisory-file)
-                     (pos? (fs/size advisory-file)))
-            (reset! additional-context (slurp advisory-file))))
+      (when (reinject/should-reinject? session_id transcript_path
+                                       turn-count byte-threshold turn-threshold)
+        (let [bundle (reinject/build-reinject-context cwd reinject-cfg)]
+          (when (seq bundle)
+            (reset! additional-context bundle)))
 
         ;; Also update effectiveness counters periodically
         (try
@@ -415,14 +468,52 @@ Rules:
           (catch Exception _)))
 
       ;; ========================================
+      ;; PHASE 4: TURN JUDGE (conscience)
+      ;; Only runs when judge.enabled — this is the coarse per-turn
+      ;; pass, complementing the per-tool pass in PostToolUse.
+      ;; ========================================
+      (let [judge-cfg (:judge config {})
+            enabled? (:enabled judge-cfg false)
+            budget-ok? (not (judge/budget-exceeded? session_id config))]
+        (when (and enabled? budget-ok?)
+          (try
+            (let [digest-file (str compiled-dir "/active-rules-digest.md")
+                  digest (when (fs/exists? digest-file) (slurp digest-file))
+                  tool-uses (extract-last-turn-tool-uses transcript_path)]
+              (when (and digest (seq tool-uses))
+                (let [verdicts (judge/judge-turn
+                                 {:tool-uses tool-uses
+                                  :active-rules-digest digest}
+                                 config)]
+                  (doseq [v verdicts]
+                    (judge/append-log! cwd
+                                       (-> v
+                                           (assoc :kind "turn"
+                                                  :session session_id
+                                                  :turn turn-count
+                                                  :ts (str (java.time.Instant/now)))))
+                    (judge/add-session-budget! session_id (:cost_usd v 0.0))))))
+            (catch Exception _))))
+
+      ;; ========================================
       ;; OUTPUT
       ;; ========================================
+      ;; Final gate: every additionalContext emission — whether from
+      ;; reinject or correction-detection — is bounded by a per-session
+      ;; emission cap. In headless `claude -p` mode, the reinjected
+      ;; content itself contains correction keywords ("don't", "stop",
+      ;; "instead") which re-trigger tier1 correction detection on the
+      ;; next Stop fire, which re-emits, which creates another turn,
+      ;; which fires Stop again — without a human to terminate the loop,
+      ;; the cap is the only backstop. See reinject/emission-allowed?.
       (let [ctx @additional-context
             msg @notification-msg]
-        (when (or ctx msg)
+        (when (and (or ctx msg)
+                   (reinject/emission-allowed? session_id))
           (let [full-ctx (cond-> ""
                            ctx (str ctx)
                            msg (str "\n\n[Succession] " msg))]
+            (reinject/note-emission! session_id)
             (println (json/generate-string
                       {:hookSpecificOutput
                        {:additionalContext full-ctx}})))))))

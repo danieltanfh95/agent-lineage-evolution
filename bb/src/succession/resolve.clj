@@ -72,6 +72,31 @@
                             str/trim)
                         "\n")))))
 
+(defn compile-active-rules-digest
+  "One-line-per-rule digest of every enabled rule across all tiers.
+   Used by the judge ('what's active right now?') and by reinjection as a
+   compact drumbeat anchor. Target ~80 chars/line so the full digest
+   stays cheap to include on every tool call."
+  [all-rules]
+  (str "# Active rules (compact)\n"
+       "Format: [tier] id — summary\n\n"
+       (str/join "\n"
+                 (for [rule all-rules
+                       :let [tier (or (:enforcement rule) "?")
+                             id (:id rule)
+                             first-line (-> (:body rule "")
+                                            (str/replace #"## Enforcement[\s\S]*" "")
+                                            str/trim
+                                            str/split-lines
+                                            first
+                                            (or "")
+                                            str/trim)
+                             summary (if (> (count first-line) 80)
+                                       (str (subs first-line 0 77) "...")
+                                       first-line)]]
+                   (str "- [" tier "] " id " — " summary)))
+       "\n"))
+
 (defn compile-advisory-summary
   "Compile all rules into a strong advisory summary matching CLAUDE.md framing."
   [all-rules]
@@ -134,12 +159,14 @@
         tool-rules (compile-tool-rules mechanical)
         semantic-md (compile-semantic-rules semantic)
         advisory-md (compile-advisory-summary resolved)
+        digest-md (compile-active-rules-digest resolved)
         candidates (review-candidates resolved)]
 
     ;; Write artifacts
     (spit (str compiled-dir "/tool-rules.json") (json/generate-string tool-rules {:pretty true}))
     (spit (str compiled-dir "/semantic-rules.md") semantic-md)
     (spit (str compiled-dir "/advisory-summary.md") advisory-md)
+    (spit (str compiled-dir "/active-rules-digest.md") digest-md)
     (spit (str compiled-dir "/review-candidates.json") (json/generate-string candidates {:pretty true}))
 
     {:total (count resolved)
