@@ -1,6 +1,11 @@
+---
+Date: 2026-04-06 13:32
+---
+# Succession - ALE for an Agentic World
+
 Time flies in the AI world. My Agent Lineage Evolution (ALE) framework in 2025 was born out of me watching Ghost in the Shell and having the observation that LLM sessions need to die often enough for it to be productive: otherwise artifacts in the process of thinking would pollute the context even if the final result was correct. This process of death needs to be supervised and curated by a human because the main agent in the session has degraded to the point where it can barely follow instructions. This was true in the era where AI assisted coding was just tab-complete and copy-paste, and remains true even now with agentic frameworks, just with caveats.
 
-![alt text](image.png)
+![Anthropic twitter person telling us to use smaller context](https://cdn.some.pics/danieltan/69d3b6690d049.png)
 
 Anthropic just announced their "best practices" (https://x.com/lydiahallie/status/2039800718371307603) for reducing token costs and it included "Cap your context window, long sessions cost more". The interesting part here is that claude code does prompt caching extremely well so just repeating a long session would not have "cost more" from a context perspective. The issue is that instead, long sessions contain too many artifacts that the LLM start losing its reasoning and instruction following capabilities that often lead to people turning on `/effort max` just to compensate, and the LLM, in trying to correct its many reasoning mistakes go into a death loop of constantly making mistakes->attempting to rectify them. Capping the session length allows for constant rebirth, which, incidently, was what ALE advocated for.
 
