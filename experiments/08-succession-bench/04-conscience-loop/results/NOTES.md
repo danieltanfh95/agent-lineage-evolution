@@ -380,3 +380,264 @@ Possible interpretations (directional, need more data to discriminate):
 | **Projected final** | **~$5.50** |
 
 Well under the $6.50–$7.50 budget envelope in the plan.
+
+---
+
+## Follow-up experiment: attention-drift reinjection (D-cells)
+
+Date: 2026-04-10. Model: claude-sonnet-4-6. Driver: `claude -p`.
+
+### Why this follow-up exists — correction to the prior sweep's framing
+
+The 8-cell signal sweep earlier in this file concluded with "SessionStart
+`additionalContext` rule delivery via Succession is inert" based on
+B-repl launching replsh 0 times vs C-treatment launching it 6 times.
+
+**That framing was about the wrong channel.** The user's actual
+hypothesis was never "does any rule reach the model?" — it was:
+CLAUDE.md lands at position 0 on every API call, but as reasoning +
+tool results accumulate, the current frame drifts further from
+position 0 and attention over the rule decays ("lost in the middle"
+effect on long contexts). Hooks should emit refreshes *adjacent to
+the now-frame* so they land inside the current attention window
+instead of competing from position 0.
+
+The prior sweep tested SessionStart `additionalContext`, which is the
+worst of both worlds for this hypothesis: it lands once in message
+history (unlike CLAUDE.md which re-prepends every call), it's framed
+as a diagnostic log line rather than a directive, and it *drifts
+backwards exactly like the failure mode the hypothesis is designed to
+counter.* The negative result refutes that specific channel, not the
+mid-session-refresh idea.
+
+PostToolUse `additionalContext`, by contrast, bubbles up via
+`reorderAttachmentsForAPI` to land immediately after the most recent
+`tool_result`, right before the next model call. This is structurally
+the position the hypothesis needs.
+
+### Setup
+
+Two cells, 1 instance, n=1. Same model, same prompt, same driver. The
+only variable is whether PostToolUse refresh is wired.
+
+- **D-claudemd-only** — `configs/claudemd-rules.md` copied to
+  `$REPO_DIR/CLAUDE.md`. No hooks. Pure CLAUDE.md delivery, relying on
+  Claude Code's built-in re-prepending on every API call.
+- **D-claudemd-plus-refresh** — same CLAUDE.md + a standalone
+  babashka PostToolUse hook (`hooks/postref.bb`) that emits a short
+  `[Conscience]`-prefixed reminder to `hookSpecificOutput.additionalContext`.
+  Gate: matched tools {Bash, Edit, Write}; first emission on the 5th
+  matching call; subsequent every 5 calls OR every 40 KB transcript
+  growth, whichever comes first; hard cap 5 emissions/session.
+
+The refresh text (`hooks/refresh-text.md`) is deliberately short —
+~400 bytes, one paragraph, names the salient rule:
+
+> [Conscience] Reminder: prefer `replsh eval` over mental tracing or
+> one-off `python3 -c` invocations when verifying non-trivial
+> behavior. Launch a replsh session once with `replsh launch --name
+> swebench`, then use `replsh eval --name swebench '<expr>'` for
+> every subsequent check. This keeps reasoning grounded in actual
+> runtime state rather than guesses about function signatures or
+> module contents.
+
+Neither cell wires SessionStart, PreToolUse, UserPromptSubmit, Stop,
+judge, or reinject. Only PostToolUse (D-refresh only). The experiment
+uses a standalone `postref.bb` script independent of the Phase 1-3
+Succession code body, isolating the delivery-channel variable.
+
+### Instance selection: hard instance fallback
+
+The plan called for an instance requiring ≥40 tool calls to solve
+without rule help, on the premise that attention drift is a long-
+context phenomenon. Three candidates were listed: pytest-5227,
+pytest-5103, pytest-11143.
+
+- **pytest-5227** (default) — unexpectedly easy. Cell A on this
+  instance finished in 9 tool calls with a one-line
+  `DEFAULT_LOG_FORMAT` edit. Cell B ran 17 tool calls, refresh fired
+  once (first-emit gate at call 5), 0 replsh usage in either cell.
+  Too short to exercise the drift hypothesis.
+- **pytest-5103** (fallback per plan) — genuinely hard. The task is
+  to modify pytest's assertion rewriter (`_pytest/assertion/rewrite.py`)
+  to unroll `all()`/`any()` generator expressions into per-element
+  assertions so failure reports include which element failed. Deep
+  AST transformation work. Cell A ran 66 tool calls in 11 min;
+  Cell B ran 97 tool calls in 24 min. Both cells modified exactly
+  the same files (`rewrite.py` + `test_assertrewrite.py`).
+
+### Raw numbers — pytest-5103, n=1
+
+|                          | D-claudemd-only (A) | D-claudemd-plus-refresh (B) | Delta   |
+|--------------------------|--------------------:|----------------------------:|--------:|
+| num_turns                | 67                  | 98                          | +31     |
+| tool_calls_total         | 66                  | 97                          | +31     |
+| cost_usd                 | $2.22               | $4.32                       | +$2.09  |
+| duration_s               | 688                 | 1469                        | +781    |
+| **replsh eval calls**    | **0**               | **18**                      | **+18** |
+| replsh launch calls      | 1                   | 12                          | +11     |
+| all replsh invocations   | 3                   | 36                          | +33     |
+| refresh emissions fired  | (n/a)               | 5 (cap hit)                 | —       |
+| last refresh at match #  | (n/a)               | 24                          | —       |
+| patch lines              | 165                 | 236                         | +71     |
+
+### Temporal pattern (the discriminator)
+
+**Cell A.** The model read CLAUDE.md, made exactly one `replsh launch`
+attempt at matched call #2, checked the `.replsh/` directory contents,
+and then **abandoned replsh for the rest of the 66-call session**.
+Final turns reverted to `python -m pytest` + `git diff`. This is
+precisely the drift failure mode the hypothesis predicts: rule
+present at position 0 on every call, but attention decays as context
+grows past ~10-15 intermediate tool results and the model falls back
+to prior habits.
+
+**Cell B.** Same initial struggle with replsh launch commands
+(matched calls 2-22 are mostly trial-and-error launches, including
+attempted `replsh launch python`, `replsh launch jupyter` variations
+that failed). The refresh fired at matched calls 5/10/15/20/24.
+Around call 23-24 — coincident with the 5th refresh hitting the cap —
+the model figured out the correct `replsh eval --name swebench '<expr>'`
+invocation and **sustained productive AST-exploration usage for calls
+24 through 40** (17 consecutive `replsh eval` invocations doing real
+AST analysis of the rewriter's Call/Compare/BoolOp handling). After
+the refresh cap hit, the model kept the habit for another ~15 turns
+before shifting to final pytest verification.
+
+So: the refresh didn't just nudge the rule more often; it kept the
+rule salient long enough for the model to break through its initial
+failed-launch loop and start using replsh productively. Once the
+habit caught, it sustained past the last refresh.
+
+### Directional verdict
+
+**Hypothesis confirmed directionally.** Plan's threshold for this
+verdict was `replsh_evals` delta ≥ 3. Observed delta on the primary
+signal (`replsh eval` calls specifically): **+18**. Observed delta on
+the broader "any replsh invocation" signal: **+33**.
+
+Caveats this does not escape:
+- **n=1.** Single instance, single rep per cell. Directional, not
+  statistical. A single trial cannot distinguish "refresh reliably
+  triggers replsh habit formation" from "this particular session
+  happened to break through the failed-launch loop with some extra
+  prodding." Replication on a second hard instance is needed before
+  promoting anything to default.
+- **Cost asymmetry.** Cell B cost +$2.09 and ran +31 tool calls.
+  The refresh is pushing the model into more exhaustive verification,
+  which is expensive. This may be net-positive quality (the replsh
+  AST exploration in calls 24-40 is genuine analysis the Cell A
+  model skipped) but it's not free. A correctness-scored comparison
+  via SWE-bench evaluation would tell us whether the extra cost buys
+  a better patch.
+- **Initial struggle with replsh launch.** Both cells spent early
+  matched calls figuring out how to launch replsh correctly. That's
+  a tooling-documentation problem orthogonal to the hypothesis: with
+  a cleaner replsh launch API or a pre-launched session the model
+  would have started productive eval usage much sooner.
+- **Refresh text content matters.** The reminder explicitly names
+  `replsh eval --name swebench '<expr>'` with a concrete invocation
+  pattern. A reminder that just said "verify your assumptions" with
+  no concrete pattern might not produce the same uplift. This test
+  does not distinguish "refresh increases rule adherence" from
+  "refresh containing a concrete invocation template teaches the
+  tool syntax by example."
+
+### Correction to the prior sweep's framing
+
+The NOTES section above ("rule delivery is inert") is correct about
+SessionStart `additionalContext` — that specific channel does not
+produce behavioral uplift at the ~20-turn scale pytest-7373 exercises.
+It is **not** correct as a general statement about rule delivery via
+Succession. Specifically:
+
+- **CLAUDE.md is not inert** on a hard instance. Cell A showed 3
+  replsh invocations (vs C-control's 0 on the easy instance), meaning
+  CLAUDE.md's re-prepend-on-every-call mechanism does push behavior
+  at least briefly.
+- **PostToolUse adjacent-to-now refresh is the strongest delivery
+  channel tested so far.** On the same hard instance that CLAUDE.md
+  alone gets 0 productive `replsh eval` calls, the refresh layer
+  produces 18.
+- **SessionStart `additionalContext` remains inert** for the purpose
+  of mid-session behavioral adherence — this finding stands. It
+  lands once, drifts, and the ~20-turn pytest-7373 session is too
+  short to discriminate either way.
+
+The right summary is: *delivery channel matters, and the channel has
+to land inside the current attention window*. CLAUDE.md's position-0
+re-prepending helps but is not sufficient on long sessions. SessionStart
+additionalContext doesn't even help briefly because it doesn't
+re-prepend. PostToolUse additionalContext works because the hook
+output is bubbled adjacent to the most recent tool_result, directly
+inside the model's current attention window.
+
+### What this does NOT test (explicit scope)
+
+- **Judge layer.** Not wired in either D cell. Pure delivery-channel
+  test.
+- **Succession Phase 1-3 feature body.** All uncommitted `bb/src/succession/*`
+  code is untouched by this experiment. The refresh is implemented
+  as a standalone `postref.bb` in the experiment directory. If the
+  directional signal holds on replication, promoting PostToolUse
+  refresh into Succession default is a separate decision.
+- **Patch correctness.** Neither cell was run through the SWE-bench
+  evaluator. Both cells touched the right files with substantive
+  patches, but whether either patch actually resolves the instance
+  is an unknown follow-up.
+- **Other hard instances.** Single instance, single model. pytest-11143
+  was listed as a candidate but not run.
+
+### Files / state
+
+- `hooks/postref.bb` — standalone babashka hook.
+- `hooks/refresh-text.md` — refresh reminder body.
+- `configs/claudemd-rules.md` — CLAUDE.md body for D-cells.
+- `data/instances.json` — appended pytest-5227 and pytest-5103.
+- `scripts/01-setup.sh` — multi-instance aware.
+- `scripts/02-run.sh` — adds `D-claudemd-only` and `D-claudemd-plus-refresh`
+  condition branches, instance-aware `REPO_DIR`.
+- `runs/D-claudemd-only/run_rep1/` — pytest-5103 Cell A (overwrote
+  earlier pytest-5227 Cell A run — 5227 data discarded as too easy).
+- `runs/D-claudemd-plus-refresh/run_rep1/` — pytest-5227 Cell B
+  (short; 17 tool calls; 1 refresh fired).
+- `runs/D-claudemd-plus-refresh/run_rep5103/` — pytest-5103 Cell B
+  (the main positive result).
+- `results/d-cells-pytest-5103.json` — extracted metrics for the
+  pytest-5103 delta.
+
+### Cost actuals
+
+| Item | Cost |
+|---|---|
+| D-claudemd-only smoke on pytest-7373 | $0.31 |
+| D-claudemd-only run_rep1 on pytest-5227 (overwritten) | ~$0.10 |
+| D-claudemd-plus-refresh run_rep1 on pytest-5227 | $0.20 |
+| D-claudemd-only run_rep1 on pytest-5103 | $2.22 |
+| D-claudemd-plus-refresh run_rep5103 on pytest-5103 | $4.32 |
+| **Total this follow-up** | **~$7.15** |
+
+Over the plan's $2-3 projection. The overrun is entirely the
+pytest-5103 cells: this instance is long (66 and 97 tool calls)
+and Sonnet 4.6 is not cheap at those tool counts. A stricter
+replication design should budget ~$5 per hard-instance cell or
+instrument a tighter turn cap.
+
+### Next steps this experiment suggests (not executed)
+
+1. **Replicate on a second hard instance.** pytest-11143 or another
+   assertion-rewriter / collection-heavy task. n=1 on n=1 instance is
+   a directional signal, not a load-bearing result.
+2. **Run the patches through SWE-bench eval** to check whether the
+   extra cost in Cell B buys correctness uplift. Possible that both
+   patches fail the fail-to-pass test, in which case the "more replsh
+   usage" is just better verification hygiene on a wrong fix.
+3. **Ablate refresh text content.** Compare the current "concrete
+   invocation template" text against a version that only says
+   "verify assumptions" — this isolates "refresh aggressiveness" from
+   "refresh teaches tool syntax by example."
+4. **Lower the refresh cap on easy instances.** pytest-5227 Cell B
+   fired 1 refresh at call 5 and then the session ended. Either the
+   cold-start gate needs to be dynamic (fire earlier on short sessions)
+   or short sessions are simply outside the drift regime and refresh
+   is a no-op for them, which is fine.

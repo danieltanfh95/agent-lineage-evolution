@@ -2,10 +2,7 @@
 .soul/log/*.jsonl
 .soul/staging/
 .claude/settings.local.json
-experiments/05-longmemeval/data/
-experiments/05-longmemeval/LongMemEval/
-experiments/*/.venv/
-experiments/08-succession-bench/04-conscience-loop/repos/
+experiments/
 __pycache__/
 *.pyc
 *.swp

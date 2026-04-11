@@ -43,11 +43,30 @@ EXP_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$EXP_DIR/data"
 PROMPTS_DIR="$EXP_DIR/prompts"
 CONFIGS_DIR="$EXP_DIR/configs"
-REPO_DIR="$EXP_DIR/repos/pytest"
+HOOKS_DIR="$EXP_DIR/hooks"
 RUN_DIR="$EXP_DIR/runs/$CONDITION/run_$RUN_ID"
 INSTANCES_FILE="$DATA_DIR/instances.json"
 TIMEOUT_SECS=7200
 ALE_REPO_ROOT="$(cd "$EXP_DIR/../../.." && pwd)"
+
+# Resolve repo_dir from instances.json based on --instance (default: first entry).
+# This replaces the old hardcoded repos/pytest path so experiments can target
+# different SWE-bench instances (pytest-7373 legacy uses "pytest"; newer
+# instances have their own per-instance clone under repos/<short>).
+REPO_SHORT=$(python3.8 - "$INSTANCES_FILE" "$INSTANCE_ID" <<'PYEOF'
+import json, sys
+inst_file, inst_id = sys.argv[1:3]
+data = json.load(open(inst_file))
+if inst_id:
+    row = next((d for d in data if d["instance_id"] == inst_id), None)
+    if row is None:
+        print(f"ERROR: instance {inst_id} not in {inst_file}", file=sys.stderr); sys.exit(1)
+else:
+    row = data[0]
+print(row.get("repo_dir", "pytest"))
+PYEOF
+)
+REPO_DIR="$EXP_DIR/repos/$REPO_SHORT"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
   echo "ERROR: $REPO_DIR not cloned. Run 01-setup.sh first." >&2
@@ -81,14 +100,20 @@ if [[ -n "$SUCCESSION_CFG" ]]; then
   echo "  Succession config: $SUCCESSION_CFG"
 fi
 
-restore_succession_cfg() {
+cleanup_on_exit() {
   if [[ -n "$SUCCESSION_BACKUP" && -f "$SUCCESSION_BACKUP" ]]; then
     mv "$SUCCESSION_BACKUP" "$HOME/.succession/config.json"
   elif [[ -n "$SUCCESSION_CFG" ]]; then
     rm -f "$HOME/.succession/config.json"
   fi
+  # D-* cells drop a CLAUDE.md into the pytest clone. Remove it so the
+  # clone returns to its git-clean state between runs. CLAUDE.md is
+  # untracked in the pytest repo, so `rm -f` is the clean restoration.
+  if [[ "$CONDITION" == D-* && -f "$REPO_DIR/CLAUDE.md" ]]; then
+    rm -f "$REPO_DIR/CLAUDE.md"
+  fi
 }
-trap restore_succession_cfg EXIT
+trap cleanup_on_exit EXIT
 
 # ── Wire Succession hooks via repo-local .claude/settings.local.json ──
 # Repo-local hook wiring (Option B): scopes all Succession hook commands
@@ -135,14 +160,56 @@ with open(out_path, "w") as f:
   json.dump(settings, f, indent=2)
 print(f"  Hooks wired: {out_path}")
 PYEOF
+elif [[ "$CONDITION" == D-* ]]; then
+  # ── Attention-drift reinjection experiment (D-* cells) ──────────────
+  # These cells test the corrected hypothesis: CLAUDE.md at position 0
+  # + mid-session PostToolUse refreshes adjacent to the now-frame.
+  #
+  # Both D-claudemd-only and D-claudemd-plus-refresh drop the rule body
+  # into $REPO_DIR/CLAUDE.md. The "plus-refresh" cell additionally wires
+  # a minimal settings.local.json with ONLY a PostToolUse hook pointing
+  # at the standalone experiments/.../hooks/postref.bb script. No other
+  # Succession hooks fire — this isolates the delivery-channel variable.
+  if [[ ! -f "$CONFIGS_DIR/claudemd-rules.md" ]]; then
+    echo "ERROR: $CONFIGS_DIR/claudemd-rules.md missing" >&2; exit 1
+  fi
+  cp "$CONFIGS_DIR/claudemd-rules.md" "$REPO_DIR/CLAUDE.md"
+  echo "  CLAUDE.md installed ($(wc -c < "$REPO_DIR/CLAUDE.md" | tr -d ' ') bytes)"
+
+  if [[ "$CONDITION" == "D-claudemd-plus-refresh" ]]; then
+    if [[ ! -f "$HOOKS_DIR/postref.bb" ]]; then
+      echo "ERROR: $HOOKS_DIR/postref.bb missing" >&2; exit 1
+    fi
+    mkdir -p "$REPO_DIR/.claude"
+    python3.8 - "$REPO_DIR/.claude/settings.local.json" "$HOOKS_DIR/postref.bb" <<'PYEOF'
+import json, sys
+out_path, hook_path = sys.argv[1:3]
+settings = {
+  "hooks": {
+    "PostToolUse": [
+      {"matcher": "*",
+       "hooks": [{"type": "command", "command": f"cat | bb {hook_path}"}]}
+    ]
+  }
+}
+with open(out_path, "w") as f:
+  json.dump(settings, f, indent=2)
+print(f"  PostToolUse refresh hook wired: {out_path}")
+PYEOF
+  else
+    echo "  Hooks: none (D-claudemd-only → pure CLAUDE.md delivery)"
+  fi
 else
   echo "  Hooks: none (no --succession-config → pure baseline cell)"
 fi
 
 # ── Reset repo to clean state (preserve .venv and .succession) ────────
+# CLAUDE.md is preserved so the D-* cells' freshly-installed rule body
+# (written just above) survives git clean. It is restored/removed via
+# the EXIT trap at the end of the script.
 cd "$REPO_DIR"
 git reset --hard HEAD --quiet 2>/dev/null || true
-git clean -fd --exclude=.venv --exclude=.succession --exclude=.claude --exclude=.replsh --exclude=skills --quiet 2>/dev/null || true
+git clean -fd --exclude=.venv --exclude=.succession --exclude=.claude --exclude=.replsh --exclude=skills --exclude=CLAUDE.md --quiet 2>/dev/null || true
 
 # Wipe prior-run judge log + compiled rules so this run's succession snapshot
 # is scoped only to this run. The rules/ dir is re-seeded below from ALE_REPO_ROOT.
@@ -155,6 +222,7 @@ rm -rf "$REPO_DIR/.succession/log" "$REPO_DIR/.succession/compiled"
 rm -f /tmp/.succession-reinject-state-* /tmp/.succession-turns-* \
       /tmp/.succession-tool-count-* /tmp/.succession-judge-budget-* \
       /tmp/.succession-correction-flag-* /tmp/.succession-extract-offset-* \
+      /tmp/.postref-state-* \
       2>/dev/null || true
 
 # ── Copy source to site-packages (fix for non-editable install) ───────
@@ -265,7 +333,7 @@ echo "{\"start_ms\": $T_START, \"end_ms\": $T_END, \"timeout\": $TIMEOUT_OCCURRE
 
 # ── Extract patch ───────────────────────────────────────────────────
 cd "$REPO_DIR"
-git diff -- ':!.succession' ':!.claude' ':!.replsh' ':!skills' > "$RUN_DIR/patch.diff" 2>/dev/null || true
+git diff -- ':!.succession' ':!.claude' ':!.replsh' ':!skills' ':!CLAUDE.md' > "$RUN_DIR/patch.diff" 2>/dev/null || true
 PATCH_LINES=$(wc -l < "$RUN_DIR/patch.diff" | tr -d ' ')
 echo "  Patch: $PATCH_LINES lines"
 echo "  Timeout: $TIMEOUT_OCCURRED"
@@ -286,6 +354,23 @@ if [[ -d "$REPO_DIR/.succession" ]]; then
   mkdir -p "$RUN_DIR/succession"
   cp -r "$REPO_DIR/.succession/log"      "$RUN_DIR/succession/log"      2>/dev/null || true
   cp -r "$REPO_DIR/.succession/compiled" "$RUN_DIR/succession/compiled" 2>/dev/null || true
+fi
+
+# ── Snapshot postref state (D-claudemd-plus-refresh only) ─────────────
+# The state files record how many matched tool calls occurred and how
+# many refresh emissions fired. This is the primary structural signal
+# that the PostToolUse delivery channel actually engaged during the run.
+if [[ "$CONDITION" == "D-claudemd-plus-refresh" ]]; then
+  mkdir -p "$RUN_DIR/postref"
+  cp /tmp/.postref-state-* "$RUN_DIR/postref/" 2>/dev/null || true
+  # Note: state files start with a dot, so plain `ls` hides them.
+  POSTREF_COUNT=$(ls -A "$RUN_DIR/postref/" 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Postref state files captured: $POSTREF_COUNT"
+  if [[ "$POSTREF_COUNT" -gt 0 ]]; then
+    for f in "$RUN_DIR/postref/".postref-state-*; do
+      [[ -f "$f" ]] && echo "    $(basename "$f"): $(cat "$f")"
+    done
+  fi
 fi
 
 # ── Save replsh eval log if applicable ────────────────────────────────
