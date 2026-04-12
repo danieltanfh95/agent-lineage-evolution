@@ -8,8 +8,8 @@
             [succession.store.test-helpers :as h]))
 
 ;; ------------------------------------------------------------------
-;; should-emit? — ports `succession.refresh/should-emit?` so we mirror
-;; its 18-0 Finding-1 battery semantically.
+;; should-emit? — port of the predecessor refresh gate; these tests
+;; mirror the 18-0 Finding-1 pytest-5103 battery semantically.
 ;; ------------------------------------------------------------------
 
 (def default-gate

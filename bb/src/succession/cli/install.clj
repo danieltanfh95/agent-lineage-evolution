@@ -76,17 +76,28 @@ performance metric.
    ["Stop"              "stop"]
    ["PreCompact"        "pre-compact"]])
 
+(defn- bb-command
+  "Hook command template. `src-path` is a string to place after `bb -cp`;
+   callers pass either `$CLAUDE_PROJECT_DIR/bb/src` (most common — bb.edn
+   lives under a `bb/` subdirectory) or `$CLAUDE_PROJECT_DIR/src` (bb.edn
+   at project root)."
+  [src-path sub]
+  (str "bb -cp \"" src-path "\" -m succession.core hook " sub))
+
 (defn build-hook-entries
   "Pure: produce the hooks section of a settings.json for these six
    events. Shape matches Claude Code's schema: each event name maps to
-   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`."
-  []
+   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`.
+
+   `src-path` is the classpath root (relative to `$CLAUDE_PROJECT_DIR`)
+   baked into each hook command — e.g. `$CLAUDE_PROJECT_DIR/bb/src`."
+  [src-path]
   (into {}
         (map (fn [[event-name sub]]
                [event-name
                 [{:matcher ""
                   :hooks   [{:type    "command"
-                             :command (str "bb -m succession.core hook " sub)}]}]]))
+                             :command (bb-command src-path sub)}]}]]))
         hook-events))
 
 ;; ------------------------------------------------------------------
@@ -185,12 +196,28 @@ performance metric.
               (or existing {})
               new-entries))))
 
+(defn- detect-src-path
+  "Guess where the Succession source tree lives relative to
+   `$CLAUDE_PROJECT_DIR`. Prefers `bb/src` (this project's layout) and
+   falls back to `src` for single-tree projects."
+  [project-root]
+  (cond
+    (.exists (io/file project-root "bb" "src" "succession" "core.clj"))
+    "$CLAUDE_PROJECT_DIR/bb/src"
+
+    (.exists (io/file project-root "src" "succession" "core.clj"))
+    "$CLAUDE_PROJECT_DIR/src"
+
+    :else
+    "$CLAUDE_PROJECT_DIR/bb/src"))
+
 (defn install-settings!
   "Update `.claude/settings.local.json` to wire all six Succession hooks.
    Creates the file if missing. Preserves any existing non-Succession
    hooks and any other top-level keys."
   [project-root]
   (let [path     (.getPath (io/file project-root ".claude" "settings.local.json"))
+        src-path (detect-src-path project-root)
         existing (or (read-json-if-exists path) {})
         already? (some (fn [[_ entries]]
                          (some (fn [entry]
@@ -200,7 +227,7 @@ performance metric.
                                        (:hooks entry)))
                                entries))
                        (:hooks existing))
-        merged   (merge-hook-entries existing (build-hook-entries))]
+        merged   (merge-hook-entries existing (build-hook-entries src-path))]
     (if already?
       {:step :settings :status :skipped :path path :reason "succession hooks already wired"}
       (do (io/make-parents (io/file path))
