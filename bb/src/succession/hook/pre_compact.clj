@@ -1,4 +1,4 @@
-(ns succession.identity.hook.pre-compact
+(ns succession.hook.pre-compact
   "PreCompact hook — the ONLY real promotion site.
 
    This is where intra-session delta logs turn into canonical identity
@@ -20,14 +20,14 @@
    PreCompact emits no `additionalContext` — it runs at compaction time
    when the model is not reading hook output anyway."
   (:require [clojure.java.io :as io]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.tier :as tier]
-            [succession.identity.hook.common :as common]
-            [succession.identity.store.archive :as archive]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.locks :as locks]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.staging :as store-staging]))
+            [succession.domain.card :as card]
+            [succession.domain.tier :as tier]
+            [succession.hook.common :as common]
+            [succession.store.archive :as archive]
+            [succession.store.cards :as store-cards]
+            [succession.store.locks :as locks]
+            [succession.store.observations :as store-obs]
+            [succession.store.staging :as store-staging]))
 
 ;; ------------------------------------------------------------------
 ;; Delta application — per plan §PreCompact step-per-delta list
@@ -191,5 +191,5 @@
       (promote! project-root session now cfg))
     (catch Throwable t
       (binding [*out* *err*]
-        (println "succession.identity pre-compact error:" (.getMessage t)))))
+        (println "succession pre-compact error:" (.getMessage t)))))
   nil)

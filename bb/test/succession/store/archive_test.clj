@@ -1,9 +1,9 @@
-(ns succession.identity.store.archive-test
+(ns succession.store.archive-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
-            [succession.identity.store.archive :as archive]
-            [succession.identity.store.cards :as cards]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.store.archive :as archive]
+            [succession.store.cards :as cards]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

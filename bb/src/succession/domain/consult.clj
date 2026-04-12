@@ -1,4 +1,4 @@
-(ns succession.identity.domain.consult
+(ns succession.domain.consult
   "Pure query over cards for a consultation situation.
 
    `cli/consult` reads promoted.edn + staging, runs this pure function to
@@ -34,7 +34,7 @@
 
    Reflective resolution (should the agent do it or not) is for `claude -p`,
    not for this function."
-  (:require [succession.identity.domain.salience :as salience]))
+  (:require [succession.domain.salience :as salience]))
 
 (defn- principle-forbids?
   "A principle-tier card that fingerprint-matches the situation is

@@ -1,6 +1,6 @@
-(ns succession.identity.domain.card-test
+(ns succession.domain.card-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.domain.card :as card]))
+            [succession.domain.card :as card]))
 
 (def fixture-provenance
   {:provenance/born-at         #inst "2026-01-15T10:23:00Z"

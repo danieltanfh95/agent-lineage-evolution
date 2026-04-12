@@ -1,11 +1,11 @@
-(ns succession.identity.cli.replay-test
+(ns succession.cli.replay-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [cheshire.core :as json]
-            [succession.identity.cli.replay :as replay]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.cli.replay :as replay]
+            [succession.store.observations :as store-obs]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

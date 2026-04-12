@@ -1,4 +1,4 @@
-(ns succession.identity.cli.consult
+(ns succession.cli.consult
   "`bb succession consult \"<situation>\"` — agent-invoked identity
    consultation.
 
@@ -15,17 +15,17 @@
 
    Reference: `.plans/succession-identity-cycle.md` §Consultation."
   (:require [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.consult :as consult]
-            [succession.identity.domain.render :as render]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.domain.weight :as weight]
-            [succession.identity.llm.claude :as claude]
-            [succession.identity.domain.observation :as dom-obs]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.staging :as store-staging]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.contradictions :as store-contra]))
+            [succession.config :as config]
+            [succession.domain.consult :as consult]
+            [succession.domain.render :as render]
+            [succession.domain.rollup :as rollup]
+            [succession.domain.weight :as weight]
+            [succession.llm.claude :as claude]
+            [succession.domain.observation :as dom-obs]
+            [succession.store.cards :as store-cards]
+            [succession.store.staging :as store-staging]
+            [succession.store.observations :as store-obs]
+            [succession.store.contradictions :as store-contra]))
 
 ;; ------------------------------------------------------------------
 ;; Arg parsing

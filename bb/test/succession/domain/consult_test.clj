@@ -1,8 +1,8 @@
-(ns succession.identity.domain.consult-test
+(ns succession.domain.consult-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.consult :as consult]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.consult :as consult]))
 
 (def cfg config/default-config)
 

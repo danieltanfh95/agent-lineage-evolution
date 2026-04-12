@@ -1,4 +1,4 @@
-(ns succession.identity.store.cards
+(ns succession.store.cards
   "Read and write identity cards to disk. One markdown file per card,
    YAML frontmatter carrying all card metadata, markdown body carrying
    the card text. Observations are NOT stored on the card — they live in
@@ -14,9 +14,9 @@
   (:require [clj-yaml.core :as yaml]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.store.paths :as paths]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.store.paths :as paths]))
 
 ;; ------------------------------------------------------------------
 ;; Card shape ↔ on-disk representation

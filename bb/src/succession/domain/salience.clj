@@ -1,4 +1,4 @@
-(ns succession.identity.domain.salience
+(ns succession.domain.salience
   "Pure ranking of cards against a situation.
 
    PreToolUse and PostToolUse refresh both need to answer: 'given this
@@ -21,7 +21,7 @@
    weights — keeping `domain/weight` separate. Recency is also passed
    in (computed by the caller from observations) so this namespace
    stays free of clock-reading."
-  (:require [succession.identity.config :as config]))
+  (:require [succession.config :as config]))
 
 (def ^:private tier-baseline
   "Constant per-tier baseline used by the :tier-weight feature.

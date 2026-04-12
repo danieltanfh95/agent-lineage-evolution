@@ -1,4 +1,4 @@
-(ns succession.identity.store.observations
+(ns succession.store.observations
   "Per-observation EDN files under
    `.succession/observations/{session-id}/{ts}-{uuid}.edn`.
 
@@ -16,7 +16,7 @@
    `domain/observation`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.store.paths :as paths]))
+            [succession.store.paths :as paths]))
 
 (defn- safe-ts-string
   "Convert an inst into a filename-safe ISO-like string: no colons or

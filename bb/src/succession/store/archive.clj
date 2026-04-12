@@ -1,4 +1,4 @@
-(ns succession.identity.store.archive
+(ns succession.store.archive
   "Timestamped snapshots of `identity/promoted/` taken at each
    PreCompact promotion. The archive is the replay/rollback ground
    truth — with it, any historical identity state can be reconstructed
@@ -13,7 +13,7 @@
    observation filenames)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.store.paths :as paths]))
+            [succession.store.paths :as paths]))
 
 (defn- safe-ts [inst]
   (-> (cond

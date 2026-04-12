@@ -1,6 +1,6 @@
-(ns succession.identity.domain.observation-test
+(ns succession.domain.observation-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.domain.observation :as obs]))
+            [succession.domain.observation :as obs]))
 
 (defn- make-fixture
   ([] (make-fixture {}))

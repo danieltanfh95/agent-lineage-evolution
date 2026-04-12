@@ -1,11 +1,11 @@
-(ns succession.identity.hook.post-tool-use-test
+(ns succession.hook.post-tool-use-test
   "Tests for the pure functions of post-tool-use. The async judge lane
    spawns a subprocess and is not unit-tested here — it's covered by the
    integration shadow-mode run in Phase 2."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.hook.post-tool-use :as ptu]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.hook.post-tool-use :as ptu]
+            [succession.store.test-helpers :as h]))
 
 ;; ------------------------------------------------------------------
 ;; should-emit? — ports `succession.refresh/should-emit?` so we mirror

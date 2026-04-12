@@ -1,4 +1,4 @@
-(ns succession.identity.hook.pre-tool-use
+(ns succession.hook.pre-tool-use
   "PreToolUse hook — pure salient-card lookup for the upcoming tool call.
 
    Per plan §PreToolUse: this is a pure lookup. No LLM, no disk writes,
@@ -20,10 +20,10 @@
    cards, regardless of how recently we last surfaced them.
 
    Reference: `.plans/succession-identity-cycle.md` §PreToolUse."
-  (:require [succession.identity.domain.render :as render]
-            [succession.identity.domain.salience :as salience]
-            [succession.identity.hook.common :as common]
-            [succession.identity.store.cards :as store-cards]))
+  (:require [succession.domain.render :as render]
+            [succession.domain.salience :as salience]
+            [succession.hook.common :as common]
+            [succession.store.cards :as store-cards]))
 
 (defn- tool-descriptor
   "Same format as post-tool-use — keeps card fingerprints substring-
@@ -57,5 +57,5 @@
         (common/emit-additional-context! "PreToolUse" (build-reminder ranked))))
     (catch Throwable t
       (binding [*out* *err*]
-        (println "succession.identity pre-tool-use error:" (.getMessage t)))))
+        (println "succession pre-tool-use error:" (.getMessage t)))))
   nil)

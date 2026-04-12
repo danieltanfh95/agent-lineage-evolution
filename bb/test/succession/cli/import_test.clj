@@ -1,11 +1,11 @@
-(ns succession.identity.cli.import-test
+(ns succession.cli.import-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
-            [succession.identity.cli.import :as import-cli]
-            [succession.identity.config :as config]
-            [succession.identity.hook.pre-compact :as pre-compact]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.cli.import :as import-cli]
+            [succession.config :as config]
+            [succession.hook.pre-compact :as pre-compact]
+            [succession.store.cards :as store-cards]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 (def ^:dynamic *rules-dir* nil)

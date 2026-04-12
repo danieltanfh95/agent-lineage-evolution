@@ -1,10 +1,10 @@
-(ns succession.identity.domain.render-test
+(ns succession.domain.render-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.consult :as consult]
-            [succession.identity.domain.render :as render]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.consult :as consult]
+            [succession.domain.render :as render]))
 
 (def cfg config/default-config)
 

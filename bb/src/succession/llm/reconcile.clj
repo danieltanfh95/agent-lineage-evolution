@@ -1,4 +1,4 @@
-(ns succession.identity.llm.reconcile
+(ns succession.llm.reconcile
   "LLM-assisted contradiction resolution for the categories the pure
    detector cannot decide:
 
@@ -20,7 +20,7 @@
    Reference: `.plans/succession-identity-cycle.md` §Reconcile categories,
    §Reconcile pipeline."
   (:require [clojure.string :as str]
-            [succession.identity.llm.claude :as claude]))
+            [succession.llm.claude :as claude]))
 
 ;; ------------------------------------------------------------------
 ;; Prompt construction

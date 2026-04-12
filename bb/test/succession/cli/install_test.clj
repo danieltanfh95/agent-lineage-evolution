@@ -1,6 +1,6 @@
-(ns succession.identity.cli.install-test
+(ns succession.cli.install-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.cli.install :as install]))
+            [succession.cli.install :as install]))
 
 (deftest build-hook-entries-covers-six-events-test
   (let [entries (install/build-hook-entries)]
@@ -11,7 +11,7 @@
       (is (vector? v))
       (is (= 1 (count v)))
       (let [cmd (get-in (first v) [:hooks 0 :command])]
-        (is (re-find #"bb -m succession\.identity\.core hook " cmd))))))
+        (is (re-find #"bb -m succession\.core hook " cmd))))))
 
 (deftest merge-hook-entries-preserves-existing-test
   (testing "non-succession hooks in other events survive"
@@ -21,7 +21,7 @@
           merged   (install/merge-hook-entries existing (install/build-hook-entries))
           ss       (get-in merged [:hooks "SessionStart"])]
       (is (some (fn [e] (some #(= "my-other-tool.sh" (:command %)) (:hooks e))) ss))
-      (is (some (fn [e] (some #(re-find #"succession\.identity\.core" (:command %))
+      (is (some (fn [e] (some #(re-find #"succession\.core" (:command %))
                               (:hooks e))) ss)))))
 
 (deftest merge-hook-entries-idempotent-test

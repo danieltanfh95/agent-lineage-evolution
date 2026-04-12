@@ -1,4 +1,4 @@
-(ns succession.identity.domain.observation
+(ns succession.domain.observation
   "Pure data shape + predicates for observations.
 
    An observation is the atom of evidence: one thing the judge, the user,
@@ -22,7 +22,7 @@
 
    All observations are append-only. Never edit, never delete. If wrong,
    add a contradiction record instead."
-  (:require [succession.identity.config :as config]))
+  (:require [succession.config :as config]))
 
 (def valid-sources
   "Where observations come from."

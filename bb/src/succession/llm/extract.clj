@@ -1,4 +1,4 @@
-(ns succession.identity.llm.extract
+(ns succession.llm.extract
   "LLM extraction: transcript → candidate cards + observations.
 
    Runs at Stop (detached) and re-runs at PreCompact. Reads the
@@ -21,7 +21,7 @@
    read cards. The caller supplies transcript text + existing-card
    ids (for dedup)."
   (:require [clojure.string :as str]
-            [succession.identity.llm.claude :as claude]))
+            [succession.llm.claude :as claude]))
 
 ;; ------------------------------------------------------------------
 ;; Prompt construction

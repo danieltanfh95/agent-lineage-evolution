@@ -1,4 +1,4 @@
-(ns succession.identity.domain.reconcile
+(ns succession.domain.reconcile
   "Pure contradiction detection over identity cards + observations.
 
    Six contradiction categories per plan §Reconcile:
@@ -30,9 +30,9 @@
 
    Output: a seq of contradiction records (see shape below). Caller
    decides what to do — the pure detector is a finder, not an applier."
-  (:require [succession.identity.domain.observation :as obs]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.domain.tier :as tier]))
+  (:require [succession.domain.observation :as obs]
+            [succession.domain.rollup :as rollup]
+            [succession.domain.tier :as tier]))
 
 (defn- make-contradiction
   [{:keys [id at session category between detector resolution]}]

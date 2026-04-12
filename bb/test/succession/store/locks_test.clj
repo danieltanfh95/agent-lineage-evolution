@@ -1,7 +1,7 @@
-(ns succession.identity.store.locks-test
+(ns succession.store.locks-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.store.locks :as locks]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.store.locks :as locks]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

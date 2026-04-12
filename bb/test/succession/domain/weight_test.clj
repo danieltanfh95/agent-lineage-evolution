@@ -1,4 +1,4 @@
-(ns succession.identity.domain.weight-test
+(ns succession.domain.weight-test
   "Test battery for the temporal-span weight formula.
 
    The scenarios come directly from `.plans/succession-identity-cycle.md`
@@ -6,10 +6,10 @@
    assertion is about ordering, not absolute numbers. This lets us tune
    the formula without rewriting the tests."
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.config :as config]
-            [succession.identity.domain.observation :as obs]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.domain.weight :as weight]))
+            [succession.config :as config]
+            [succession.domain.observation :as obs]
+            [succession.domain.rollup :as rollup]
+            [succession.domain.weight :as weight]))
 
 (def cfg config/default-config)
 

@@ -1,8 +1,8 @@
-(ns succession.identity.cli.config-validate-test
+(ns succession.cli.config-validate-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
-            [succession.identity.cli.config-validate :as cv]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.cli.config-validate :as cv]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

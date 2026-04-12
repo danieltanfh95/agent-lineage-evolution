@@ -1,11 +1,11 @@
-(ns succession.identity.cli.consult-test
+(ns succession.cli.consult-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.cli.consult :as consult-cli]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.config :as config]
+            [succession.cli.consult :as consult-cli]
+            [succession.store.cards :as store-cards]
+            [succession.store.observations :as store-obs]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

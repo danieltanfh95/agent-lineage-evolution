@@ -1,5 +1,5 @@
-(ns succession.identity.cli.replay
-  "`bb -m succession.identity.core replay <transcript>` — dry-run
+(ns succession.cli.replay
+  "`bb -m succession.core replay <transcript>` — dry-run
    harness that walks a recorded Claude Code session JSONL through
    the identity cycle against a sandbox directory.
 
@@ -28,13 +28,13 @@
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.observation :as dom-obs]
-            [succession.identity.domain.reconcile :as reconcile]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.paths :as paths]
-            [succession.identity.store.staging :as store-staging]))
+            [succession.config :as config]
+            [succession.domain.observation :as dom-obs]
+            [succession.domain.reconcile :as reconcile]
+            [succession.store.cards :as store-cards]
+            [succession.store.observations :as store-obs]
+            [succession.store.paths :as paths]
+            [succession.store.staging :as store-staging]))
 
 ;; ------------------------------------------------------------------
 ;; Transcript parsing
@@ -208,7 +208,7 @@
         transcript   (first args)]
     (if (str/blank? transcript)
       (do (binding [*out* *err*]
-            (println "usage: bb -m succession.identity.core replay <transcript.jsonl>"))
+            (println "usage: bb -m succession.core replay <transcript.jsonl>"))
           (System/exit 1))
       (try (run project-root transcript)
            (System/exit 0)

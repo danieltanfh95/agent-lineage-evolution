@@ -1,11 +1,11 @@
-(ns succession.identity.hook.pre-compact-test
+(ns succession.hook.pre-compact-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.config :as config]
-            [succession.identity.hook.pre-compact :as pre-compact]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.staging :as store-staging]
-            [succession.identity.store.archive :as store-archive]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.config :as config]
+            [succession.hook.pre-compact :as pre-compact]
+            [succession.store.cards :as store-cards]
+            [succession.store.staging :as store-staging]
+            [succession.store.archive :as store-archive]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

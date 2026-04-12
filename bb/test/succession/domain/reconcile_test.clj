@@ -1,9 +1,9 @@
-(ns succession.identity.domain.reconcile-test
+(ns succession.domain.reconcile-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.observation :as obs]
-            [succession.identity.domain.reconcile :as reconcile]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.observation :as obs]
+            [succession.domain.reconcile :as reconcile]))
 
 (def cfg config/default-config)
 (defn- date [s] (java.util.Date/from (java.time.Instant/parse s)))

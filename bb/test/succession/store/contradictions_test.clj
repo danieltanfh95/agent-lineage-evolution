@@ -1,7 +1,7 @@
-(ns succession.identity.store.contradictions-test
+(ns succession.store.contradictions-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.store.contradictions :as store-c]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.store.contradictions :as store-c]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

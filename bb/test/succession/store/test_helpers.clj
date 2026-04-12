@@ -1,8 +1,8 @@
-(ns succession.identity.store.test-helpers
+(ns succession.store.test-helpers
   "Shared helpers for store tests: tmp-dir, fixtures, constructors."
   (:require [clojure.java.io :as io]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.observation :as obs]))
+            [succession.domain.card :as card]
+            [succession.domain.observation :as obs]))
 
 (defn tmp-dir!
   "Create a fresh temp directory under the system tmp dir. Returns the

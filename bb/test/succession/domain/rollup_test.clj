@@ -1,7 +1,7 @@
-(ns succession.identity.domain.rollup-test
+(ns succession.domain.rollup-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.domain.observation :as obs]
-            [succession.identity.domain.rollup :as rollup]))
+            [succession.domain.observation :as obs]
+            [succession.domain.rollup :as rollup]))
 
 (defn- obs-fixture
   [{:keys [id at session kind] :or {kind :confirmed}}]

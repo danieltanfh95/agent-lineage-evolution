@@ -1,9 +1,9 @@
-(ns succession.identity.hook.session-start-test
+(ns succession.hook.session-start-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [succession.identity.hook.session-start :as ss]
-            [succession.identity.store.staging :as store-staging]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.hook.session-start :as ss]
+            [succession.store.staging :as store-staging]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

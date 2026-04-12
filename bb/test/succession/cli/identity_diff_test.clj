@@ -1,7 +1,7 @@
-(ns succession.identity.cli.identity-diff-test
+(ns succession.cli.identity-diff-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.cli.identity-diff :as idiff]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.cli.identity-diff :as idiff]
+            [succession.store.test-helpers :as h]))
 
 (deftest diff-empty-empty-test
   (is (= {:added () :removed () :retiered () :rewritten ()}

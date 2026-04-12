@@ -1,5 +1,5 @@
-(ns succession.identity.cli.install
-  "`bb -m succession.identity.core install` — one-shot atomic setup.
+(ns succession.cli.install
+  "`bb -m succession.core install` — one-shot atomic setup.
 
    Writes every file Succession needs to run in a project:
 
@@ -13,7 +13,7 @@
         `.succession/archive/`, `.succession/contradictions/` — the
         store's live directories.
      5. `.claude/settings.local.json` hook entries for all six events,
-        pointing at `bb -m succession.identity.core hook <event>`.
+        pointing at `bb -m succession.core hook <event>`.
 
    Idempotent: every step refuses to overwrite an existing file/entry.
    Running `install` on a project that already has some steps applied
@@ -25,8 +25,8 @@
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.cli.config-validate :as config-cli]
-            [succession.identity.store.paths :as paths]))
+            [succession.cli.config-validate :as config-cli]
+            [succession.store.paths :as paths]))
 
 ;; ------------------------------------------------------------------
 ;; Skill content
@@ -46,7 +46,7 @@ Do not use when: the action is clearly routine, or you've consulted
 in the last few turns about the same thing (it's logged — check your
 recent bash output).
 
-How: run `bb -m succession.identity.core consult \"<one-sentence situation>\"`
+How: run `bb -m succession.core consult \"<one-sentence situation>\"`
 with flags as needed. Read the response carefully. The response
 organizes your identity into principle (inviolable), rule (default
 behavior), and ethic (aspirational), and flags contradictions.
@@ -86,7 +86,7 @@ performance metric.
                [event-name
                 [{:matcher ""
                   :hooks   [{:type    "command"
-                             :command (str "bb -m succession.identity.core hook " sub)}]}]]))
+                             :command (str "bb -m succession.core hook " sub)}]}]]))
         hook-events))
 
 ;; ------------------------------------------------------------------
@@ -196,7 +196,7 @@ performance metric.
                          (some (fn [entry]
                                  (some (fn [h]
                                          (str/includes? (:command h "")
-                                                        "succession.identity.core hook"))
+                                                        "succession.core hook"))
                                        (:hooks entry)))
                                entries))
                        (:hooks existing))
@@ -224,7 +224,7 @@ performance metric.
 
 (defn run
   [project-root _args]
-  (println "installing succession-identity at" project-root)
+  (println "installing succession at" project-root)
   (let [results (concat
                   [(install-skill!  project-root)
                    (install-config! project-root)]

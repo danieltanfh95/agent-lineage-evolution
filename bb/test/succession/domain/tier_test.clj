@@ -1,8 +1,8 @@
-(ns succession.identity.domain.tier-test
+(ns succession.domain.tier-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.tier :as tier]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.tier :as tier]))
 
 (def cfg config/default-config)
 

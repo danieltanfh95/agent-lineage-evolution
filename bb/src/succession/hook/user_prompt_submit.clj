@@ -1,4 +1,4 @@
-(ns succession.identity.hook.user-prompt-submit
+(ns succession.hook.user-prompt-submit
   "UserPromptSubmit hook — capture user corrections as high-quality
    observations.
 
@@ -25,8 +25,8 @@
 
    Reference: `.plans/succession-identity-cycle.md` §UserPromptSubmit."
   (:require [clojure.string :as str]
-            [succession.identity.hook.common :as common]
-            [succession.identity.store.staging :as store-staging]))
+            [succession.hook.common :as common]
+            [succession.store.staging :as store-staging]))
 
 (defn detect-correction
   "Pure: return the first regex pattern (as a string) that matched the
@@ -75,5 +75,5 @@
         (handle-prompt! project-root session prompt now cfg)))
     (catch Throwable t
       (binding [*out* *err*]
-        (println "succession.identity user-prompt-submit error:" (.getMessage t)))))
+        (println "succession user-prompt-submit error:" (.getMessage t)))))
   nil)

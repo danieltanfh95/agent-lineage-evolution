@@ -1,4 +1,4 @@
-(ns succession.identity.llm.claude
+(ns succession.llm.claude
   "Single canonical `call` function for every `claude -p` invocation in
    the identity system. Judge, extract, reconcile, and consult all route
    through here so there is exactly one place that:

@@ -1,8 +1,8 @@
-(ns succession.identity.store.observations-test
+(ns succession.store.observations-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.store.observations :as store-obs]
+            [succession.domain.rollup :as rollup]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

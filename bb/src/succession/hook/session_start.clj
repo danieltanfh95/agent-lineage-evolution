@@ -1,4 +1,4 @@
-(ns succession.identity.hook.session-start
+(ns succession.hook.session-start
   "SessionStart hook — auditability + first-turn priming only.
 
    Finding 1 established that SessionStart `additionalContext` is near-
@@ -19,13 +19,13 @@
      5. Emit `{:hookSpecificOutput {:additionalContext <md>}}`.
 
    No LLM. No disk writes (orphan handling is flagged, not applied)."
-  (:require [succession.identity.domain.render :as render]
-            [succession.identity.domain.rollup :as rollup]
-            [succession.identity.domain.weight :as weight]
-            [succession.identity.hook.common :as common]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.sessions :as store-sessions]))
+  (:require [succession.domain.render :as render]
+            [succession.domain.rollup :as rollup]
+            [succession.domain.weight :as weight]
+            [succession.hook.common :as common]
+            [succession.store.cards :as store-cards]
+            [succession.store.observations :as store-obs]
+            [succession.store.sessions :as store-sessions]))
 
 (def ^:private consult-skill-footer
   (str "---\n\n"
@@ -73,5 +73,5 @@
       (common/emit-additional-context! "SessionStart" context))
     (catch Throwable t
       (binding [*out* *err*]
-        (println "succession.identity session-start error:" (.getMessage t)))))
+        (println "succession session-start error:" (.getMessage t)))))
   nil)

@@ -1,9 +1,9 @@
-(ns succession.identity.hook.user-prompt-submit-test
+(ns succession.hook.user-prompt-submit-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.config :as config]
-            [succession.identity.hook.user-prompt-submit :as ups]
-            [succession.identity.store.staging :as store-staging]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.config :as config]
+            [succession.hook.user-prompt-submit :as ups]
+            [succession.store.staging :as store-staging]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

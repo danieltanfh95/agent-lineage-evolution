@@ -1,7 +1,7 @@
-(ns succession.identity.llm.extract-test
+(ns succession.llm.extract-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.llm.extract :as extract]))
+            [succession.llm.extract :as extract]))
 
 (deftest build-prompt-includes-transcript-and-existing-test
   (let [prompt (extract/build-prompt

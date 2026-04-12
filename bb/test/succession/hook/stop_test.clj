@@ -1,12 +1,12 @@
-(ns succession.identity.hook.stop-test
+(ns succession.hook.stop-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.config :as config]
-            [succession.identity.hook.stop :as stop]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.contradictions :as store-contra]
-            [succession.identity.store.observations :as store-obs]
-            [succession.identity.store.staging :as store-staging]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.config :as config]
+            [succession.hook.stop :as stop]
+            [succession.store.cards :as store-cards]
+            [succession.store.contradictions :as store-contra]
+            [succession.store.observations :as store-obs]
+            [succession.store.staging :as store-staging]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

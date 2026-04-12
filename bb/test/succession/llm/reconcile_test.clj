@@ -1,10 +1,10 @@
-(ns succession.identity.llm.reconcile-test
+(ns succession.llm.reconcile-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.observation :as obs]
-            [succession.identity.llm.reconcile :as reconcile]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.observation :as obs]
+            [succession.llm.reconcile :as reconcile]))
 
 (def cfg config/default-config)
 

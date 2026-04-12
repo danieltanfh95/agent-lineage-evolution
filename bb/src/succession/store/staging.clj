@@ -1,4 +1,4 @@
-(ns succession.identity.store.staging
+(ns succession.store.staging
   "Intra-session delta log + materialized snapshot.
 
    All intra-session identity changes (new card proposals, text rewrites,
@@ -17,7 +17,7 @@
    Reference: `.plans/succession-identity-cycle.md` §Delta (staging log)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.store.paths :as paths]))
+            [succession.store.paths :as paths]))
 
 ;; ------------------------------------------------------------------
 ;; JSONL writer/reader for deltas

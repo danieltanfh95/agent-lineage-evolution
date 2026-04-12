@@ -1,8 +1,8 @@
-(ns succession.identity.hook.pre-tool-use-test
+(ns succession.hook.pre-tool-use-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [succession.identity.hook.pre-tool-use :as ptu]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.hook.pre-tool-use :as ptu]
+            [succession.store.test-helpers :as h]))
 
 (deftest build-reminder-shape-test
   (testing "non-empty ranked produces a reminder with the header"

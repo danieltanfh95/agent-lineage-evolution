@@ -1,5 +1,5 @@
-(ns succession.identity.cli.identity-diff
-  "`bb -m succession.identity.core identity-diff <ts1> <ts2>` — compare
+(ns succession.cli.identity-diff
+  "`bb -m succession.core identity-diff <ts1> <ts2>` — compare
    two archived identity snapshots.
 
    Every PreCompact run writes `.succession/archive/{ts}/promoted/...`
@@ -22,8 +22,8 @@
    Reference: `.plans/succession-identity-cycle.md` §CLI surface."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.store.cards :as store-cards]
-            [succession.identity.store.paths :as paths]))
+            [succession.store.cards :as store-cards]
+            [succession.store.paths :as paths]))
 
 (defn- load-snapshot-cards
   "Load cards from either a named archive or the live promoted tree.
@@ -121,7 +121,7 @@
   (let [[ts1 ts2] args]
     (if (or (str/blank? ts1) (str/blank? ts2))
       (do (binding [*out* *err*]
-            (println "usage: bb -m succession.identity.core identity-diff <ts1> <ts2|current>"))
+            (println "usage: bb -m succession.core identity-diff <ts1> <ts2|current>"))
           (System/exit 2))
       (let [before (load-snapshot-cards project-root ts1)
             after  (load-snapshot-cards project-root ts2)

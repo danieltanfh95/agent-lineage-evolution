@@ -1,4 +1,4 @@
-(ns succession.identity.domain.card
+(ns succession.domain.card
   "Pure data shape + predicates for identity cards.
 
    A card is the atomic unit of identity: a single claim about who the
@@ -28,7 +28,7 @@
    Weight and tier-eligibility are NOT stored on the card. They are
    computed from the card's text/tier and its observations (which live
    in a separate log) via `domain/weight` and `domain/tier`."
-  (:require [succession.identity.config :as config]))
+  (:require [succession.config :as config]))
 
 (defn card?
   "Predicate: `x` is a well-formed identity card."

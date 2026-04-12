@@ -1,5 +1,5 @@
-(ns succession.identity.cli.import
-  "`bb -m succession.identity.core import <old-rules-dir>` — one-shot
+(ns succession.cli.import
+  "`bb -m succession.core import <old-rules-dir>` — one-shot
    migration from the old `.succession/rules/*.md` YAML-frontmatter
    rule files into the new card store.
 
@@ -40,9 +40,9 @@
   (:require [clj-yaml.core :as yaml]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.hook.pre-compact :as pre-compact]
-            [succession.identity.store.staging :as store-staging]))
+            [succession.config :as config]
+            [succession.hook.pre-compact :as pre-compact]
+            [succession.store.staging :as store-staging]))
 
 (def ^:private fm-delim "---")
 
@@ -109,7 +109,7 @@
     (cond
       (str/blank? rules-dir)
       (do (binding [*out* *err*]
-            (println "usage: bb -m succession.identity.core import <old-rules-dir>"))
+            (println "usage: bb -m succession.core import <old-rules-dir>"))
           (System/exit 2))
 
       (not (.exists (io/file rules-dir)))

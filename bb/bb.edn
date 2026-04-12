@@ -3,9 +3,9 @@
 
  ;; Task aliases so `bb succession <...>` works anywhere the project
  ;; bb.edn is visible. The task forwards its positional args to
- ;; `succession.identity.core/-main`.
+ ;; `succession.core/-main`.
  :tasks
  {succession
   {:doc "Run a Succession CLI or hook via `bb succession <mode> <op> ...`"
-   :requires ([succession.identity.core :as core])
+   :requires ([succession.core :as core])
    :task (apply core/-main *command-line-args*)}}}

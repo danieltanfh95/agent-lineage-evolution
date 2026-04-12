@@ -1,8 +1,8 @@
-(ns succession.identity.domain.salience-test
+(ns succession.domain.salience-test
   (:require [clojure.test :refer [deftest is testing]]
-            [succession.identity.config :as config]
-            [succession.identity.domain.card :as card]
-            [succession.identity.domain.salience :as salience]))
+            [succession.config :as config]
+            [succession.domain.card :as card]
+            [succession.domain.salience :as salience]))
 
 (def cfg config/default-config)
 

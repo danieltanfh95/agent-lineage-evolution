@@ -1,4 +1,4 @@
-(ns succession.identity.domain.rollup
+(ns succession.domain.rollup
   "Collapse a flat observation list into a per-session rollup.
 
    Motivation: if the agent does 50 Edit operations in a session, we get
@@ -14,7 +14,7 @@
    This namespace does that collapse. Pure. Input is a seq of
    observations, output is a map keyed by session-id. Downstream
    (`domain/weight`) consumes the rollup, not raw observations."
-  (:require [succession.identity.domain.observation :as obs]))
+  (:require [succession.domain.observation :as obs]))
 
 (defn- min-inst
   "Earlier of two temporal values. Works for any Comparable pair,

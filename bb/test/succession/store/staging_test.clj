@@ -1,7 +1,7 @@
-(ns succession.identity.store.staging-test
+(ns succession.store.staging-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.identity.store.staging :as staging]
-            [succession.identity.store.test-helpers :as h]))
+            [succession.store.staging :as staging]
+            [succession.store.test-helpers :as h]))
 
 (def ^:dynamic *root* nil)
 

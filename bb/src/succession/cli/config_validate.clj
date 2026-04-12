@@ -1,5 +1,5 @@
-(ns succession.identity.cli.config-validate
-  "`bb -m succession.identity.core config <subcmd>` — config tools.
+(ns succession.cli.config-validate
+  "`bb -m succession.core config <subcmd>` — config tools.
 
    Subcommands:
 
@@ -14,8 +14,8 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [succession.identity.config :as config]
-            [succession.identity.store.paths :as paths]))
+            [succession.config :as config]
+            [succession.store.paths :as paths]))
 
 (def ^:private template-config
   "Starter config written by `config init`. Comments explain each
@@ -25,7 +25,7 @@
     ";; .succession/config.edn — Succession identity-cycle config\n"
     ";;\n"
     ";; Every tunable in the system lives here. Values are deep-merged\n"
-    ";; over the defaults in `succession.identity.config/default-config`\n"
+    ";; over the defaults in `succession.config/default-config`\n"
     ";; so you only need to override the ones you disagree with.\n"
     ";;\n"
     ";; Reference: `.plans/succession-identity-cycle.md` §Config.\n"
@@ -138,7 +138,7 @@
               "show"     (show! project-root)
               "init"     (init! project-root)
               (do (binding [*out* *err*]
-                    (println "usage: bb -m succession.identity.core config <validate|show|init>")
+                    (println "usage: bb -m succession.core config <validate|show|init>")
                     (when sub (println "unknown subcommand:" sub)))
                   2))]
     (System/exit (or rc 0))))

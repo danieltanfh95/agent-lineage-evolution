@@ -1,4 +1,4 @@
-(ns succession.identity.domain.tier
+(ns succession.domain.tier
   "Pure tier promotion/demotion with hysteresis.
 
    Three tiers per plan §Three tiers:
@@ -23,7 +23,7 @@
    decides whether to apply (PreCompact does).
 
    Reference: `.plans/succession-identity-cycle.md` §Tier thresholds."
-  (:require [succession.identity.config :as config]))
+  (:require [succession.config :as config]))
 
 (def ^:private tier-order
   "Higher index = more load-bearing."

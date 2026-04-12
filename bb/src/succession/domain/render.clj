@@ -1,4 +1,4 @@
-(ns succession.identity.domain.render
+(ns succession.domain.render
   "Pure rendering of cards and candidate sets to markdown.
 
    Produces the strings consumed by three surfaces:

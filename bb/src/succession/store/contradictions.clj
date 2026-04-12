@@ -1,4 +1,4 @@
-(ns succession.identity.store.contradictions
+(ns succession.store.contradictions
   "Persistence for contradiction records produced by
    `domain/reconcile` and `llm/reconcile`.
 
@@ -15,7 +15,7 @@
    Pure shape lives in `domain/reconcile`; this namespace is I/O only."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.identity.store.paths :as paths]))
+            [succession.store.paths :as paths]))
 
 (defn write-contradiction!
   "Write or overwrite the canonical `.edn` for a contradiction.

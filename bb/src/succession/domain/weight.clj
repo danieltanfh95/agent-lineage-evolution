@@ -1,4 +1,4 @@
-(ns succession.identity.domain.weight
+(ns succession.domain.weight
   "Pure weight formula for identity cards.
 
    The 資治通鑑 principle: a claim observed long ago and re-confirmed
@@ -31,7 +31,7 @@
    for tests and replay) plus the config. Cards are NOT passed in — the
    same card's text is irrelevant to weight. Only the rollup and `now`
    matter."
-  (:require [succession.identity.domain.rollup :as rollup]))
+  (:require [succession.domain.rollup :as rollup]))
 
 (defn- ms->days [ms] (double (/ ms 86400000.0)))
 
