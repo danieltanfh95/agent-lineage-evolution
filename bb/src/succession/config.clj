@@ -48,13 +48,11 @@
                       :fingerprint  4.0
                       :recency      0.5
                       :weight       1.0}
-    :top-k            3
-    :byte-cap         400}
+    :top-k            12}
 
-   ;; --- Refresh gate (ported from existing refresh.clj; validated by Finding 1) ---
+   ;; --- Refresh gate (pacing filters, not budgets — see infinite-context principle) ---
    :refresh/gate
    {:integration-gap-turns 2
-    :cap-per-session       5
     :byte-threshold        200
     :cold-start-skip-turns 1}
 
@@ -77,7 +75,8 @@
     :auto-apply-confidence 0.8
     :timeout-seconds       60}
    :judge/llm
-   {:model           "claude-sonnet-4-6"
+   {:model           "deepseek/deepseek-chat"
+    :fallback-model  "claude-sonnet-4-6"
     :timeout-seconds 30}
    :consult/llm
    {:model           "claude-sonnet-4-6"
@@ -109,9 +108,6 @@
     :heartbeat-seconds     20   ; lock mtime refresh cadence (3x grace)
     :scan-interval-ms      500  ; jobs-dir poll interval
     :dead-letter-enabled   true}
-
-   ;; --- Retention ---
-   :retention/raw-observations-sessions 50
 
    ;; --- Four knowledge categories (whitepaper §3.3.3) ---
    :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]})

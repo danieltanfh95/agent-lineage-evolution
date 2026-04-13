@@ -115,15 +115,18 @@
 ;; ------------------------------------------------------------------
 
 (defn- src-root
-  "Best-effort location of `bb/src` for the -cp flag. Most project
-   layouts have `<project-root>/bb/src`; fall back to the raw user.dir
-   for dev, or to the `SUCCESSION_BB_SRC` env var when installed."
-  []
-  (let [here      (System/getProperty "user.dir")
-        candidate (io/file here "bb" "src")]
-    (if (.exists candidate)
-      (.getPath candidate)
-      (or (System/getenv "SUCCESSION_BB_SRC") here))))
+  "Best-effort location of `bb/src` for the -cp flag. Uses the hook
+   payload's `project-root` (the actual project directory) rather than
+   `user.dir` (which may differ when Claude Code spawns the hook from
+   an unexpected cwd). Falls back to `SUCCESSION_BB_SRC` env var, then
+   `user.dir` as a last resort."
+  [project-root]
+  (let [candidates [(io/file project-root "bb" "src")
+                    (io/file project-root "src")
+                    (io/file (System/getProperty "user.dir") "bb" "src")]]
+    (or (some #(when (.exists ^java.io.File %) (.getPath ^java.io.File %)) candidates)
+        (System/getenv "SUCCESSION_BB_SRC")
+        (System/getProperty "user.dir"))))
 
 (defn- worker-already-running?
   "Cheap check used by the hook path. Returns true when a lock file
@@ -151,7 +154,7 @@
            :out      "/tmp/.succession-drain-worker.log"
            :err      "/tmp/.succession-drain-worker.log"
            :shutdown nil}
-          "bb" "-cp" (src-root) "-m" "succession.core" "worker" "drain")
+          "bb" "-cp" (src-root project-root) "-m" "succession.core" "worker" "drain")
         (catch Throwable _ nil)))))
 
 (defn enqueue-and-ensure-worker!

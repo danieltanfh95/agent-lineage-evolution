@@ -8,10 +8,12 @@
      2. Rank salient cards against the completed tool call via
         `domain/salience`.
      3. Render a compact refresh reminder via `domain/render/salient-reminder`.
-     4. Honor the refresh gate — integration-gap-turns, cap-per-session,
-        byte-threshold, cold-start-skip-turns. These values are tuned
-        and load-bearing per Finding 1 (pytest-5103 replay, 18-0); do
-        NOT re-derive.
+     4. Honor the refresh gate — integration-gap-turns, byte-threshold,
+        cold-start-skip-turns. These are pacing filters, not budgets.
+        Tuned against an 18-turn replay (pytest-5103, 18-0).
+        `cap-per-session` was removed when the project adopted the
+        infinite-context axiom — see the `infinite-context` principle
+        card.
      5. Detect deterministic `:invoked`/`:confirmed` observations via
         `card/fingerprint` substring match against the tool descriptor.
         Append the observation to `store/observations`.
@@ -79,25 +81,24 @@
 (defn should-emit?
   "Gate decision — pure fn of (state, cur-bytes, gate-config).
 
-   Ported from the predecessor refresh implementation so Finding 1's
-   tuned values (pytest-5103 replay, 18-0 over CLAUDE.md-only) carry
-   over 1:1. Field names match the config's `:refresh/gate` keys."
+   Pacing filters only — no hard cap on total emissions per session.
+   The infinite-context axiom means drift is the enemy, not token
+   budget. `integration-gap-turns` and `byte-threshold` prevent
+   back-to-back redundant reminders; beyond that, fire freely."
   [{:keys [calls emits last-emit-call last-emit-bytes]}
    cur-bytes
-   {:keys [integration-gap-turns cap-per-session byte-threshold cold-start-skip-turns]
+   {:keys [integration-gap-turns byte-threshold cold-start-skip-turns]
     :or   {integration-gap-turns 2
-           cap-per-session       5
            byte-threshold        200
            cold-start-skip-turns 1}}]
-  (let [under-cap?  (or (nil? cap-per-session) (< (or emits 0) cap-per-session))
-        first-emit? (and (zero? (or emits 0))
+  (let [first-emit? (and (zero? (or emits 0))
                          (>= calls cold-start-skip-turns))
         calls-since (- calls (or last-emit-call 0))
         bytes-since (- cur-bytes (or last-emit-bytes 0))
         later-emit? (and (pos? (or emits 0))
                          (or (>= calls-since integration-gap-turns)
                              (>= bytes-since byte-threshold)))]
-    (and under-cap? (or first-emit? later-emit?))))
+    (or first-emit? later-emit?)))
 
 ;; ------------------------------------------------------------------
 ;; Salient reminder

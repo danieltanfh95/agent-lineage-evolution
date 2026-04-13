@@ -21,7 +21,8 @@
    read cards. The caller supplies transcript text + existing-card
    ids (for dedup)."
   (:require [clojure.string :as str]
-            [succession.llm.claude :as claude]))
+            [succession.llm.claude :as claude]
+            [succession.llm.transport :as transport]))
 
 ;; ------------------------------------------------------------------
 ;; Prompt construction
@@ -152,10 +153,10 @@
         cfg    (:reconcile/llm config)
         model  (or (:model cfg) "claude-sonnet-4-6")
         timeout (or (:timeout-seconds cfg) 120)
-        result (claude/call prompt {:model-id    model
-                                    :timeout-secs timeout
-                                    :input-toks  2000
-                                    :output-toks 600})
+        result (transport/call prompt {:model-id    model
+                                       :timeout-secs timeout
+                                       :input-toks  2000
+                                       :output-toks 600})
         parsed (when (:ok? result) (parse-response (:text result)))]
     {:cards        (or (:cards parsed) [])
      :observations (or (:observations parsed) [])

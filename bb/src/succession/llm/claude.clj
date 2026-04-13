@@ -70,13 +70,15 @@
                 text   (if (sequential? parsed)
                          (:result (last parsed))
                          (or (:result parsed) (str parsed)))]
-            {:ok?        true
-             :text       (strip-fences text)
-             :raw-output (:out result)
-             :latency-ms latency
-             :cost-usd   (cost-estimate model-id input-toks output-toks)
-             :model-id   model-id
-             :exit       0})
+            {:ok?            true
+             :text           (strip-fences text)
+             :raw-output     (:out result)
+             :latency-ms     latency
+             :cost-usd       (cost-estimate model-id input-toks output-toks)
+             :input-tokens   input-toks
+             :output-tokens  output-toks
+             :model-id       model-id
+             :exit           0})
           {:ok?        false
            :error      (:err result)
            :raw-output (:out result)

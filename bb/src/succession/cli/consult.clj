@@ -20,7 +20,7 @@
             [succession.domain.render :as render]
             [succession.domain.rollup :as rollup]
             [succession.domain.weight :as weight]
-            [succession.llm.claude :as claude]
+            [succession.llm.transport :as transport]
             [succession.domain.observation :as dom-obs]
             [succession.store.cards :as store-cards]
             [succession.store.staging :as store-staging]
@@ -224,10 +224,10 @@
 
         result    (if (:dry-run? opts)
                     {:ok? true :text view-md :cost-usd 0.0 :latency-ms 0}
-                    (claude/call prompt {:model-id     model
-                                         :timeout-secs timeout
-                                         :input-toks   1500
-                                         :output-toks  400}))
+                    (transport/call prompt {:model-id     model
+                                            :timeout-secs timeout
+                                            :input-toks   1500
+                                            :output-toks  400}))
 
         reflection (if (:ok? result)
                      (:text result)

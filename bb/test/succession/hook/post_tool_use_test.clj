@@ -14,7 +14,6 @@
 
 (def default-gate
   {:integration-gap-turns 2
-   :cap-per-session       5
    :byte-threshold        200
    :cold-start-skip-turns 1})
 
@@ -29,11 +28,14 @@
                {:calls 0 :emits 0 :last-emit-call 0 :last-emit-bytes 0}
                0 default-gate)))))
 
-(deftest cap-per-session-test
-  (testing "cap blocks further emissions"
-    (is (not (ptu/should-emit?
-               {:calls 50 :emits 5 :last-emit-call 40 :last-emit-bytes 0}
-               10000 default-gate)))))
+(deftest no-cap-keeps-firing-test
+  (testing "gate keeps emitting past any emit count when pacing conditions are met"
+    (is (ptu/should-emit?
+          {:calls 50 :emits 5 :last-emit-call 40 :last-emit-bytes 0}
+          10000 default-gate))
+    (is (ptu/should-emit?
+          {:calls 100 :emits 20 :last-emit-call 98 :last-emit-bytes 0}
+          10000 default-gate))))
 
 (deftest integration-gap-test
   (testing "gap too small → no emit"

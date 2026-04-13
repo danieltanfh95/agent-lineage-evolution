@@ -20,7 +20,8 @@
    Reference: `.plans/succession-identity-cycle.md` §Reconcile categories,
    §Reconcile pipeline."
   (:require [clojure.string :as str]
-            [succession.llm.claude :as claude]))
+            [succession.llm.claude :as claude]
+            [succession.llm.transport :as transport]))
 
 ;; ------------------------------------------------------------------
 ;; Prompt construction
@@ -151,9 +152,9 @@
         model   (or (:model cfg) "claude-sonnet-4-6")
         timeout (or (:timeout-seconds cfg) 60)
         prompt  (build-category-2-prompt ctx)
-        result  (claude/call prompt {:model-id    model
-                                     :timeout-secs timeout
-                                     :output-toks 320})]
+        result  (transport/call prompt {:model-id    model
+                                          :timeout-secs timeout
+                                          :output-toks 320})]
     {:resolution (when (:ok? result) (parse-response (:text result)))
      :ok?        (boolean (:ok? result))
      :cost-usd   (or (:cost-usd result) 0.0)
@@ -167,9 +168,9 @@
         model   (or (:model cfg) "claude-sonnet-4-6")
         timeout (or (:timeout-seconds cfg) 60)
         prompt  (build-category-3-principle-prompt ctx)
-        result  (claude/call prompt {:model-id    model
-                                     :timeout-secs timeout
-                                     :output-toks 320})]
+        result  (transport/call prompt {:model-id    model
+                                          :timeout-secs timeout
+                                          :output-toks 320})]
     {:resolution (when (:ok? result) (parse-response (:text result)))
      :ok?        (boolean (:ok? result))
      :cost-usd   (or (:cost-usd result) 0.0)

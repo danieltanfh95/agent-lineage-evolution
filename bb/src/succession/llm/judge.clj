@@ -24,6 +24,7 @@
    §PostToolUse (async judge lane)."
   (:require [clojure.string :as str]
             [succession.llm.claude :as claude]
+            [succession.llm.transport :as transport]
             [succession.domain.observation :as obs]))
 
 ;; ------------------------------------------------------------------
@@ -97,6 +98,9 @@
       "Return ONLY a JSON object (no markdown fencing). Pick the single most "
       "relevant card id. If no card applies, set card_id to \"none\" and "
       "kind to \"not-applicable\".\n\n"
+      "Use \"ambiguous\" with confidence < 0.7 when the call is a grey area — "
+      "e.g. a safer variant of a forbidden action, or when context outside "
+      "this call would change the verdict.\n\n"
       "Schema: " verdict-schema)))
 
 (defn build-turn-prompt
@@ -201,20 +205,23 @@
    `config` is the effective identity config."
   [ctx config]
   (let [judge-cfg  (:judge/llm config)
-        primary    (or (:model judge-cfg) "claude-sonnet-4-6")
-        escalation (or (:escalation-model judge-cfg) "claude-opus-4-6")
+        primary    (or (:model judge-cfg) "deepseek/deepseek-chat")
+        escalation (or (:escalation-model judge-cfg) "claude-sonnet-4-6")
         timeout    (or (:timeout-seconds judge-cfg) 30)
         prompt     (build-tool-prompt ctx)
-        primary-result (claude/call prompt {:model-id primary :timeout-secs timeout})
+        primary-result (transport/call prompt {:model-id         primary
+                                                    :fallback-model-id (or (:fallback-model judge-cfg)
+                                                                           "deepseek/deepseek-chat")
+                                                    :timeout-secs     timeout})
         primary-verdicts (when (:ok? primary-result) (parse-response (:text primary-result)))
         need-escalation? (and (:ok? primary-result)
                               (some (fn [v] (or (:escalate? v)
                                                 (< (:confidence v 0.0) 0.5)))
                                     primary-verdicts))
         escalation-result (when need-escalation?
-                            (claude/call prompt {:model-id     escalation
-                                                 :timeout-secs timeout
-                                                 :output-toks  160}))
+                            (transport/call prompt {:model-id     escalation
+                                                    :timeout-secs timeout
+                                                    :output-toks  160}))
         escalation-verdicts (when (and escalation-result (:ok? escalation-result))
                               (parse-response (:text escalation-result)))
         final-verdicts (or escalation-verdicts primary-verdicts [])
@@ -237,11 +244,14 @@
    tool-level concept. Returns the same shape as `judge-tool-call`."
   [ctx config]
   (let [judge-cfg (:judge/llm config)
-        primary   (or (:model judge-cfg) "claude-sonnet-4-6")
+        primary   (or (:model judge-cfg) "deepseek/deepseek-chat")
         timeout   (or (:timeout-seconds judge-cfg) 30)
         prompt    (build-turn-prompt ctx)
-        result    (claude/call prompt {:model-id primary :timeout-secs timeout
-                                       :output-toks 240})
+        result    (transport/call prompt {:model-id         primary
+                                          :fallback-model-id (or (:fallback-model judge-cfg)
+                                                                 "deepseek/deepseek-chat")
+                                          :timeout-secs     timeout
+                                          :output-toks      240})
         verdicts  (when (:ok? result) (parse-response (:text result)))
         observations (verdicts->observations
                        verdicts
