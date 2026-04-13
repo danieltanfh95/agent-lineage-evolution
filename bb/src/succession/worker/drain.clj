@@ -137,12 +137,17 @@
 (defn- worker-config
   "Extract the `:worker/async` section with safe defaults."
   [config]
-  (merge {:idle-timeout-seconds 10
-          :parallelism          2
-          :stale-lock-seconds   60
-          :heartbeat-seconds    20
-          :scan-interval-ms     500}
-         (:worker/async config)))
+  (let [merged (merge {:idle-timeout-seconds    10
+                       :parallelism             2
+                       :stale-lock-seconds      60
+                       :heartbeat-seconds       20
+                       :scan-interval-ms        500
+                       :job-timeout-seconds     90
+                       :inflight-sweep-seconds  nil}
+                      (:worker/async config))]
+    ;; inflight-sweep-seconds defaults to stale-lock-seconds when not set
+    (update merged :inflight-sweep-seconds
+            #(or % (:stale-lock-seconds merged)))))
 
 (defn- scan-and-claim!
   "One scanner tick: list pending jobs, sort FIFO, claim the head,
@@ -193,15 +198,25 @@
   "Watches the queue state and closes `jobs-chan` when the worker has
    been idle for `idle-timeout-seconds`. Runs on its own cadence,
    driven by `scan-interval-ms` so it picks up changes within one
-   scan window."
+   scan window.
+
+   Also periodically sweeps stale inflight files back to `jobs/`.
+   This recovers jobs orphaned by timed-out futures (where
+   `future-cancel` may not have interrupted the handler thread) and
+   ensures `inflight-count` eventually drops to 0 so the idle
+   predicate can fire."
   [project-root jobs-chan ^clojure.lang.Atom stop?
    ^clojure.lang.Atom last-activity! wcfg]
   (a/thread
     (try
-      (let [{:keys [scan-interval-ms]} wcfg]
+      (let [{:keys [scan-interval-ms inflight-sweep-seconds]} wcfg]
         (loop []
           (when-not @stop?
             (Thread/sleep (long scan-interval-ms))
+            ;; Sweep stale inflight files back to jobs/ on every tick.
+            ;; The sweep is cheap (one listFiles + mtime check) and
+            ;; ensures orphaned jobs don't block idle shutdown.
+            (store-jobs/sweep-stale-inflight! project-root inflight-sweep-seconds)
             (let [snapshot {:queue/pending-count    (store-jobs/count-pending project-root)
                             :queue/inflight-count   (store-jobs/count-inflight project-root)
                             :queue/last-activity-at @last-activity!
@@ -222,13 +237,31 @@
   "Handler wrapper run inside the `pipeline-blocking` lane. Catches
    any throwable so the pipeline never dies on a bad job. `handle-fn`
    is normally `(partial handle-job! ??? config)` but tests can inject
-   a stub."
-  [handle-fn job]
+   a stub.
+
+   When `timeout-ms` is positive, the handler runs in a future with a
+   hard deadline. On timeout the future is cancelled and an ex-info is
+   routed through the normal error path (→ dead-letter)."
+  [handle-fn job timeout-ms]
   (let [started (now-date)]
     (try
-      (let [side-fx  (handle-fn job)
-            finished (now-date)]
-        (queue/job->result job nil started finished side-fx))
+      (if (and timeout-ms (pos? timeout-ms))
+        (let [fut    (future (handle-fn job))
+              result (deref fut timeout-ms ::timeout)]
+          (if (= result ::timeout)
+            (do (future-cancel fut)
+                (throw (ex-info "job timed out"
+                                {:timeout-ms timeout-ms
+                                 :job/id     (:job/id job)})))
+            (let [finished (now-date)]
+              (queue/job->result job nil started finished result))))
+        ;; no timeout — run inline
+        (let [side-fx  (handle-fn job)
+              finished (now-date)]
+          (queue/job->result job nil started finished side-fx)))
+      (catch java.util.concurrent.ExecutionException ee
+        (let [finished (now-date)]
+          (queue/job->result job (or (.getCause ee) ee) started finished nil)))
       (catch Throwable t
         (let [finished (now-date)]
           (queue/job->result job t started finished nil))))))
@@ -289,7 +322,8 @@
              last-activity! (atom (now-date))
              real-handler   (fn [job] (handle-job! job cfg))
              effective      (or handle-fn real-handler)
-             xform          (map (fn [job] (process-one effective job)))
+             timeout-ms     (* 1000 (:job-timeout-seconds wcfg))
+             xform          (map (fn [job] (process-one effective job timeout-ms)))
              _pipe          (a/pipeline-blocking
                               (:parallelism wcfg)
                               results-chan

@@ -68,40 +68,57 @@
 (defn call
   "Invoke `opencode run` synchronously.
    Returns {:ok? :text :raw-output :latency-ms :cost-usd :model-id
-            :credits-exhausted? :exit}."
+            :credits-exhausted? :exit}.
+
+   Uses `process/process` (not `shell`) so we get a handle to
+   `destroy-tree` on timeout — this kills the entire subprocess tree,
+   not just the root pid. This is critical because `opencode run`
+   spawns child processes that outlive a simple `destroy`."
   [prompt {:keys [model-id timeout-secs]}]
-  (let [t0 (System/currentTimeMillis)]
+  (let [t0         (System/currentTimeMillis)
+        timeout-ms (* (or timeout-secs 30) 1000)]
     (try
-      (let [env (-> (into {} (System/getenv))
-                    (assoc "SUCCESSION_JUDGE_SUBPROCESS" "1"))
-            result (process/shell
-                     {:in       prompt
-                      :out      :string
-                      :err      :string
-                      :timeout  (* (or timeout-secs 30) 1000)
-                      :extra-env env}
-                     "opencode" "run" "--model" model-id "--format" "json")
-            latency (- (System/currentTimeMillis) t0)
-            parsed  (parse-event-stream (:out result))]
-        (if (:error parsed)
-          {:ok?                false
-           :error              (:error parsed)
-           :credits-exhausted? (:credits-exhausted? parsed)
-           :raw-output         (:out result)
-           :latency-ms         latency
-           :cost-usd           (or (:cost parsed) 0.0)
-           :model-id           model-id
-           :exit               (:exit result)}
-          {:ok?                true
-           :text               (strip-fences (:text parsed))
-           :raw-output         (:out result)
-           :latency-ms         latency
-           :cost-usd           (or (:cost parsed) 0.0)
-           :input-tokens       (get-in parsed [:tokens :input] 0)
-           :output-tokens      (get-in parsed [:tokens :output] 0)
-           :model-id           model-id
-           :credits-exhausted? false
-           :exit               (:exit result)}))
+      (let [env  (-> (into {} (System/getenv))
+                     (assoc "SUCCESSION_JUDGE_SUBPROCESS" "1"))
+            proc (process/process
+                   {:in        prompt
+                    :out       :string
+                    :err       :string
+                    :extra-env env}
+                   "opencode" "run" "--model" model-id "--format" "json")
+            result (deref proc timeout-ms ::timeout)]
+        (if (= result ::timeout)
+          (do (process/destroy-tree proc)
+              (let [latency (- (System/currentTimeMillis) t0)]
+                {:ok?                false
+                 :error              (str "opencode timed out after " timeout-ms "ms")
+                 :credits-exhausted? false
+                 :raw-output         ""
+                 :latency-ms         latency
+                 :cost-usd           0.0
+                 :model-id           model-id
+                 :exit               -1}))
+          (let [latency (- (System/currentTimeMillis) t0)
+                parsed  (parse-event-stream (:out result))]
+            (if (:error parsed)
+              {:ok?                false
+               :error              (:error parsed)
+               :credits-exhausted? (:credits-exhausted? parsed)
+               :raw-output         (:out result)
+               :latency-ms         latency
+               :cost-usd           (or (:cost parsed) 0.0)
+               :model-id           model-id
+               :exit               (:exit result)}
+              {:ok?                true
+               :text               (strip-fences (:text parsed))
+               :raw-output         (:out result)
+               :latency-ms         latency
+               :cost-usd           (or (:cost parsed) 0.0)
+               :input-tokens       (get-in parsed [:tokens :input] 0)
+               :output-tokens      (get-in parsed [:tokens :output] 0)
+               :model-id           model-id
+               :credits-exhausted? false
+               :exit               (:exit result)}))))
       (catch Throwable t
         {:ok?                false
          :error              (.getMessage t)
