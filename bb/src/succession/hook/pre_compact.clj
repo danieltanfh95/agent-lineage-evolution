@@ -25,8 +25,10 @@
             [succession.hook.common :as common]
             [succession.store.archive :as archive]
             [succession.store.cards :as store-cards]
+            [succession.store.contradictions :as store-contra]
             [succession.store.locks :as locks]
             [succession.store.observations :as store-obs]
+            [succession.store.sessions :as store-sessions]
             [succession.store.staging :as store-staging]))
 
 ;; ------------------------------------------------------------------
@@ -174,7 +176,17 @@
       (clear-tier-files! project-root)
       (write-all-cards! project-root after-retier)
       (store-cards/materialize-promoted! project-root)
+      ;; Fix 3: resolve all open tier-violation contradictions — retier just ran,
+      ;; so any remaining :tier-violation is stale by invariant.
+      (let [open-tier-violations (->> (store-contra/load-all-contradictions project-root)
+                                      (filter #(and (= :tier-violation (:contradiction/category %))
+                                                    (nil? (:contradiction/resolved-at %)))))]
+        (doseq [c open-tier-violations]
+          (store-contra/mark-resolved! project-root (:contradiction/id c) :pre-compact now)))
       (store-staging/clear-session! project-root session)
+      ;; Fix 1: clear orphan staging dirs accumulated from prior sessions.
+      (doseq [orphan-id (store-sessions/orphan-staging project-root session)]
+        (store-staging/clear-session! project-root orphan-id))
       after-retier)))
 
 (defn run

@@ -43,7 +43,8 @@
             [succession.domain.salience :as salience]
             [succession.hook.common :as common]
             [succession.store.cards :as store-cards]
-            [succession.store.observations :as store-obs]))
+            [succession.store.observations :as store-obs]
+            [succession.transcript :as transcript]))
 
 ;; ------------------------------------------------------------------
 ;; Refresh state
@@ -216,13 +217,18 @@
         (write-state! session state'))
 
       ;; Async judge lane — enqueue a job and kick the drain worker.
-      (common/enqueue-and-ensure-worker!
-        project-root cfg
-        {:type    :judge
-         :session session
-         :payload {:tool-name     tool-name
-                   :tool-input    tool-input
-                   :tool-response (:tool_response input)}}))
+      ;; Read recent transcript context so the judge can see what the
+      ;; user asked for, not just the bare tool call.
+      (let [ctx-window (get-in cfg [:judge/llm :context-window])
+            recent     (transcript/recent-context transcript ctx-window)]
+        (common/enqueue-and-ensure-worker!
+          project-root cfg
+          {:type    :judge
+           :session session
+           :payload {:tool-name      tool-name
+                     :tool-input     tool-input
+                     :tool-response  (:tool_response input)
+                     :recent-context recent}})))
     (catch Throwable t
       (binding [*out* *err*]
         (println "succession post-tool-use error:" (.getMessage t)))))

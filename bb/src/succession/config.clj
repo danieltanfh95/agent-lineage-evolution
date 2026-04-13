@@ -77,7 +77,8 @@
    :judge/llm
    {:model           "deepseek/deepseek-chat"
     :fallback-model  "claude-sonnet-4-6"
-    :timeout-seconds 30}
+    :timeout-seconds 30
+    :context-window  {:n 3 :max-chars 600}}
    :consult/llm
    {:model           "claude-sonnet-4-6"
     :timeout-seconds 60}
@@ -102,7 +103,7 @@
    ;; process pulls jobs off the queue, runs the handlers, and self-
    ;; exits once idle. See async-lane plan §Worker lifecycle.
    :worker/async
-   {:idle-timeout-seconds  10   ; exit after this long with no work
+   {:idle-timeout-seconds  30   ; exit after this long with no work
     :parallelism           2    ; core.async pipeline-blocking lanes
     :stale-lock-seconds    60   ; lock mtime older than this = dead worker
     :heartbeat-seconds     20   ; lock mtime refresh cadence (3x grace)

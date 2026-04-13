@@ -35,17 +35,12 @@
        "See the `succession-consult` skill for details."))
 
 (defn- orphan-note
-  "Short markdown blurb when orphan staging is detected. The agent sees
-   this at SessionStart once so it can choose to trigger reconciliation
-   (e.g. by running `bb succession replay ...` or letting PreCompact
-   handle the promotion on the next compaction)."
+  "Short markdown blurb when orphan staging is detected."
   [orphans]
   (when (seq orphans)
-    (str "\n\n> **Pending reconciliation:** staging deltas from "
+    (str "\n\n> **Pending reconciliation:** "
          (count orphans)
-         " earlier session(s) have not yet been promoted: "
-         (clojure.string/join ", " (map pr-str orphans))
-         ". They will land on the next PreCompact.")))
+         " earlier session(s) have staging that will be cleared on the next PreCompact.")))
 
 (defn build-context
   "Pure: take (cards, scored, orphans) and produce the additionalContext

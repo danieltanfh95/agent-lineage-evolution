@@ -46,8 +46,8 @@
       (is (= 0 @exit))
       (is (str/includes? out "prefer-edit"))
       (is (str/includes? out "never-force-push"))
-      (is (str/includes? out "Principle"))
-      (is (str/includes? out "Rule")))))
+      (is (str/includes? out "Mandatory"))
+      (is (str/includes? out "Must")))))
 
 (deftest show-format-edn-round-trips-test
   (testing "--format edn prints one pr-str map per card; the first

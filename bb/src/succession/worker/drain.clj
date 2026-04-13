@@ -73,13 +73,15 @@
         now          (Date.)
         cards-ns     (requiring-resolve 'succession.store.cards/read-promoted-snapshot)
         cards        (or (:cards (cards-ns project-root)) [])
-        ctx          {:tool-name     (or (:tool-name payload)
-                                         (get payload "tool_name"))
-                      :tool-input    (or (:tool-input payload)
-                                         (get payload "tool_input"))
-                      :tool-response (or (:tool-response payload)
-                                         (get payload "tool_response"))
-                      :cards         cards
+        ctx          {:tool-name      (or (:tool-name payload)
+                                          (get payload "tool_name"))
+                      :tool-input     (or (:tool-input payload)
+                                          (get payload "tool_input"))
+                      :tool-response  (or (:tool-response payload)
+                                          (get payload "tool_response"))
+                      :recent-context (or (:recent-context payload)
+                                          (get payload "recent_context"))
+                      :cards          cards
                       :session       session
                       :at            now
                       :hook          :post-tool-use

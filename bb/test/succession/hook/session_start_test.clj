@@ -31,17 +31,18 @@
                   {:card (h/a-card {:id "r1" :tier :rule})
                    :weight 6.0 :recency-fraction 0.9}]
           ctx (ss/build-context scored [])]
-      (is (str/includes? ctx "Principle"))
-      (is (str/includes? ctx "Rule"))
+      (is (str/includes? ctx "Mandatory"))
+      (is (str/includes? ctx "Must"))
       (is (str/includes? ctx "p1"))
       (is (str/includes? ctx "r1")))))
 
 (deftest orphan-note-emitted-test
-  (testing "orphan staging sessions surface in the returned markdown"
+  (testing "orphan staging sessions surface as a count in the returned markdown"
     (let [ctx (ss/build-context [] ["abandoned-sess-1" "abandoned-sess-2"])]
       (is (str/includes? ctx "Pending reconciliation"))
-      (is (str/includes? ctx "abandoned-sess-1"))
-      (is (str/includes? ctx "abandoned-sess-2")))))
+      (is (str/includes? ctx "2 earlier session(s)"))
+      (is (not (str/includes? ctx "abandoned-sess-1")))
+      (is (not (str/includes? ctx "abandoned-sess-2"))))))
 
 (deftest no-orphans-no-note-test
   (testing "empty orphans seq produces no note (clean session case)"

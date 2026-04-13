@@ -23,9 +23,9 @@
   (:require [clojure.string :as str]))
 
 (def ^:private tier-header
-  {:principle "Principle · inviolable"
-   :rule      "Rule · default behavior"
-   :ethic     "Ethic · character"})
+  {:principle "Mandatory · inviolable"
+   :rule      "Must · default behavior"
+   :ethic     "Preferred · character"})
 
 (def ^:private tier-order [:principle :rule :ethic])
 
@@ -44,11 +44,17 @@
          (remove str/blank?)
          first)))
 
+(def ^:private tier->label
+  {:principle "MANDATORY"
+   :rule      "MUST"
+   :ethic     "PREFERRED"})
+
 (defn- format-card-line
-  "One bullet line for a card: `- **id** — first-line`."
+  "One bullet line for a card: `- **id** (TIER) — first-line`."
   [card]
-  (format "- **%s** — %s"
+  (format "- **%s** (%s) — %s"
           (:card/id card)
+          (get tier->label (:card/tier card) "PREFERRED")
           (or (card-first-line card) "")))
 
 (defn- format-card-line-with-weight

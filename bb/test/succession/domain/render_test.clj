@@ -32,11 +32,11 @@
                  (scored (a-card {:id "r1" :tier :rule      :category :failure-inheritance}) 8.5)
                  (scored (a-card {:id "e1" :tier :ethic     :category :meta-cognition}) 1.2)]
           out (render/identity-tree cards {})]
-      (is (str/includes? out "Principle"))
-      (is (str/includes? out "Rule"))
-      (is (str/includes? out "Ethic"))
-      (is (< (.indexOf out "Principle") (.indexOf out "Rule")))
-      (is (< (.indexOf out "Rule") (.indexOf out "Ethic")))
+      (is (str/includes? out "Mandatory"))
+      (is (str/includes? out "Must"))
+      (is (str/includes? out "Preferred"))
+      (is (< (.indexOf out "Mandatory") (.indexOf out "Must")))
+      (is (< (.indexOf out "Must") (.indexOf out "Preferred")))
       (is (str/includes? out "p1"))
       (is (str/includes? out "weight 42.0")))))
 
@@ -77,7 +77,7 @@
           out (render/consult-view result)]
       (is (str/includes? out "# Consult"))
       (is (str/includes? out "about to force-push"))
-      (is (str/includes? out "Principle"))
+      (is (str/includes? out "Mandatory"))
       (is (str/includes? out "never-force-push-main"))
       (is (str/includes? out "tensions"))
       (is (str/includes? out "principle-forbids")))))

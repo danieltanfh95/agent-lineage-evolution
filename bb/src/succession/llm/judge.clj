@@ -52,6 +52,11 @@
     \"confidence\":0.0-1.0,
     \"escalate\":true|false}")
 
+(def ^:private tier->label
+  {:principle "MANDATORY"
+   :rule      "MUST"
+   :ethic     "PREFERRED"})
+
 (defn- render-card-digest
   "Compact one-line-per-card rendering of the active cards. The digest
    goes into every judge prompt so the judge knows what to compare the
@@ -61,7 +66,7 @@
     "\n"
     (map (fn [c]
            (format "- [%s] %s — %s"
-                   (name (:card/tier c))
+                   (get tier->label (:card/tier c) "PREFERRED")
                    (:card/id c)
                    (first (str/split-lines (or (:card/text c) "")))))
          cards)))
@@ -72,7 +77,7 @@
    Inputs:
      :tool-name, :tool-input, :tool-response - the call being judged
      :cards     - seq of currently promoted identity cards"
-  [{:keys [tool-name tool-input tool-response cards]}]
+  [{:keys [tool-name tool-input tool-response cards recent-context]}]
   (let [digest    (render-card-digest cards)
         input-str (coerce-prompt-text tool-input)
         resp-str  (coerce-prompt-text tool-response)]
@@ -87,6 +92,10 @@
 
       "ACTIVE IDENTITY CARDS:\n"
       digest "\n\n"
+
+      (when recent-context
+        (str "RECENT CONVERSATION CONTEXT (last few messages before this tool call):\n"
+             recent-context "\n\n"))
 
       "TOOL CALL:\n"
       "- tool: " tool-name "\n"
@@ -105,7 +114,7 @@
 
 (defn build-turn-prompt
   "Prompt for judging a full turn (list of tool uses)."
-  [{:keys [tool-uses cards]}]
+  [{:keys [tool-uses cards recent-context]}]
   (let [digest (render-card-digest cards)]
     (str
       "You are the conscience of an agent whose IDENTITY is the cards below. "
@@ -113,6 +122,10 @@
 
       "ACTIVE IDENTITY CARDS:\n"
       digest "\n\n"
+
+      (when recent-context
+        (str "RECENT CONVERSATION CONTEXT (last few messages before this turn):\n"
+             recent-context "\n\n"))
 
       "TURN TOOL USES (" (count tool-uses) " calls):\n"
       (str/join "\n"

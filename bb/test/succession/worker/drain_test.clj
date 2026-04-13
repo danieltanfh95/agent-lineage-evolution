@@ -6,7 +6,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [succession.llm.claude :as claude]
+            [succession.llm.transport :as transport]
             [succession.store.cards :as store-cards]
             [succession.store.jobs :as jobs]
             [succession.store.paths :as paths]
@@ -187,12 +187,12 @@
     (seed-one-real-card! *root*)
     (enqueue-real-judge-job! *root*)
     (let [calls (atom 0)]
-      (with-redefs [claude/call (fn [_prompt _opts]
-                                  (swap! calls inc)
-                                  {:ok?        true
-                                   :text       fake-judge-response
-                                   :cost-usd   0.0
-                                   :latency-ms 1})]
+      (with-redefs [transport/call (fn [_prompt _opts]
+                                    (swap! calls inc)
+                                    {:ok?        true
+                                     :text       fake-judge-response
+                                     :cost-usd   0.0
+                                     :latency-ms 1})]
         (let [exit (drain/run! *root* {:config-override test-worker-config})]
           (is (= 0 exit))
           (is (pos? @calls)

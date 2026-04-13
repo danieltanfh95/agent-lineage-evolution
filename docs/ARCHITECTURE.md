@@ -198,9 +198,15 @@ hook.post-tool-use/run
   │   ├─ salience/rank + render/salient-reminder
   │   └─ emit additionalContext if gate opens
   │
+  ├── transcript context (feeds async lane)
+  │   └─ transcript/recent-context          ← last N user/assistant messages
+  │      reads tail of transcript JSONL, filters type ∈ {"user" "assistant"},
+  │      truncates per-message, returns formatted string or nil
+  │
   └── async lane (filesystem queue + drain worker)
       hook.common/enqueue-and-ensure-worker!
         ├─ store.jobs/enqueue!              ← staging/jobs/<ts>-<uuid>.json
+        │    payload includes :recent-context (string or nil)
         └─ ensure-worker-running!           ← spawn drain worker if lock absent
 ```
 
