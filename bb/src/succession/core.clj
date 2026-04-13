@@ -86,6 +86,12 @@
            (project-root) (cons op rest-args))
           0))
 
+    "statusline"
+    (System/exit
+      (or ((requiring-resolve 'succession.cli.statusline/run)
+           (project-root))
+          0))
+
     ;; Detached drain worker — post-tool-use and stop hooks spawn
     ;; `bb succession worker drain` after enqueueing. The invocation
     ;; acquires the worker lock, drains the queue, and exits on idle.

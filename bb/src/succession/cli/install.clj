@@ -84,6 +84,11 @@ performance metric.
   [src-path sub]
   (str "bb -cp \"" src-path "\" -m succession.core hook " sub))
 
+(defn- statusline-command
+  "Statusline command template. Same `src-path` convention as `bb-command`."
+  [src-path]
+  (str "bb -cp \"" src-path "\" -m succession.core statusline"))
+
 (defn build-hook-entries
   "Pure: produce the hooks section of a settings.json for these six
    events. Shape matches Claude Code's schema: each event name maps to
@@ -211,10 +216,19 @@ performance metric.
     :else
     "$CLAUDE_PROJECT_DIR/bb/src"))
 
+(defn- merge-statusline
+  "Pure: add the `statusLine` entry to a settings map if not already
+   present. Does not overwrite an existing statusLine config."
+  [settings src-path]
+  (if (:statusLine settings)
+    settings
+    (assoc settings :statusLine {:type    "command"
+                                 :command (statusline-command src-path)})))
+
 (defn install-settings!
-  "Update `.claude/settings.local.json` to wire all six Succession hooks.
-   Creates the file if missing. Preserves any existing non-Succession
-   hooks and any other top-level keys."
+  "Update `.claude/settings.local.json` to wire all six Succession hooks
+   and the statusline command. Creates the file if missing. Preserves any
+   existing non-Succession hooks and any other top-level keys."
   [project-root]
   (let [path     (.getPath (io/file project-root ".claude" "settings.local.json"))
         src-path (detect-src-path project-root)
@@ -227,7 +241,8 @@ performance metric.
                                        (:hooks entry)))
                                entries))
                        (:hooks existing))
-        merged   (merge-hook-entries existing (build-hook-entries src-path))]
+        merged   (-> (merge-hook-entries existing (build-hook-entries src-path))
+                     (merge-statusline src-path))]
     (if already?
       {:step :settings :status :skipped :path path :reason "succession hooks already wired"}
       (do (io/make-parents (io/file path))
