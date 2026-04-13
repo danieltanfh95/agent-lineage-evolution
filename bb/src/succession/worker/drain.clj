@@ -239,29 +239,19 @@
    is normally `(partial handle-job! ??? config)` but tests can inject
    a stub.
 
-   When `timeout-ms` is positive, the handler runs in a future with a
-   hard deadline. On timeout the future is cancelled and an ex-info is
-   routed through the normal error path (→ dead-letter)."
-  [handle-fn job timeout-ms]
+   Runs inline — `pipeline-blocking` workers are already OS threads
+   designed for blocking calls. Each transport (opencode, claude) owns
+   its own subprocess timeout via `process/process + destroy-tree`, so
+   there is no need for a `future` wrapper here. Adding one caused a
+   Babashka threading deadlock: the future's thread pool saturated when
+   every pipeline worker was simultaneously waiting on a slow
+   subprocess, preventing `deref` from ever unblocking."
+  [handle-fn job]
   (let [started (now-date)]
     (try
-      (if (and timeout-ms (pos? timeout-ms))
-        (let [fut    (future (handle-fn job))
-              result (deref fut timeout-ms ::timeout)]
-          (if (= result ::timeout)
-            (do (future-cancel fut)
-                (throw (ex-info "job timed out"
-                                {:timeout-ms timeout-ms
-                                 :job/id     (:job/id job)})))
-            (let [finished (now-date)]
-              (queue/job->result job nil started finished result))))
-        ;; no timeout — run inline
-        (let [side-fx  (handle-fn job)
-              finished (now-date)]
-          (queue/job->result job nil started finished side-fx)))
-      (catch java.util.concurrent.ExecutionException ee
-        (let [finished (now-date)]
-          (queue/job->result job (or (.getCause ee) ee) started finished nil)))
+      (let [side-fx  (handle-fn job)
+            finished (now-date)]
+        (queue/job->result job nil started finished side-fx))
       (catch Throwable t
         (let [finished (now-date)]
           (queue/job->result job t started finished nil))))))
@@ -322,8 +312,7 @@
              last-activity! (atom (now-date))
              real-handler   (fn [job] (handle-job! job cfg))
              effective      (or handle-fn real-handler)
-             timeout-ms     (* 1000 (:job-timeout-seconds wcfg))
-             xform          (map (fn [job] (process-one effective job timeout-ms)))
+             xform          (map (fn [job] (process-one effective job)))
              _pipe          (a/pipeline-blocking
                               (:parallelism wcfg)
                               results-chan
