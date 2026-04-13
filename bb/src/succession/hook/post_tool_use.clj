@@ -34,6 +34,7 @@
    plan §PostToolUse until the headless continuation loop is
    root-caused."
   (:require [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [babashka.fs :as fs]
@@ -67,7 +68,7 @@
   [session-id]
   (let [f (io/file (state-file session-id))]
     (if (.exists f)
-      (try (read-string (slurp f))
+      (try (edn/read-string (slurp f))
            (catch Throwable _ initial-state))
       initial-state)))
 

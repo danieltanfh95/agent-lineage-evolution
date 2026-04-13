@@ -13,7 +13,8 @@
    update, not an append).
 
    Pure shape lives in `domain/reconcile`; this namespace is I/O only."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [succession.store.paths :as paths]))
 
@@ -30,7 +31,7 @@
 
 (defn read-contradiction
   [file-path]
-  (read-string (slurp file-path)))
+  (edn/read-string (slurp file-path)))
 
 (defn load-all-contradictions
   "Return every contradiction in the canonical dir. Skips parse
@@ -81,21 +82,36 @@
       (with-open [r (io/reader f)]
         (->> (line-seq r)
              (remove str/blank?)
-             (map read-string)
+             (map edn/read-string)
              vec)))))
 
 (defn mark-resolved!
-  "Update the canonical file: set :contradiction/resolved-at and
-   :contradiction/resolved-by. Reads, mutates, writes. Not
-   concurrency-safe — caller must hold the promote lock for multi-
-   contradiction bulk updates, but single-contradiction resolves are
-   fine because each contradiction lives in its own file."
-  [project-root contradiction-id resolved-by now]
+  "Update the canonical file: set :contradiction/resolved-at,
+   :contradiction/resolved-by, and optionally :contradiction/resolution.
+   Reads, mutates, writes. Not concurrency-safe — caller must hold the
+   promote lock for multi-contradiction bulk updates, but single-
+   contradiction resolves are fine because each contradiction lives in
+   its own file."
+  ([project-root contradiction-id resolved-by now]
+   (mark-resolved! project-root contradiction-id resolved-by now nil))
+  ([project-root contradiction-id resolved-by now resolution]
+   (let [file (paths/contradiction-file project-root contradiction-id)]
+     (when (.exists (io/file file))
+       (let [existing (read-contradiction file)
+             updated  (cond-> (assoc existing
+                                     :contradiction/resolved-at now
+                                     :contradiction/resolved-by resolved-by)
+                        resolution (assoc :contradiction/resolution resolution))]
+         (spit file (pr-str updated))
+         updated)))))
+
+(defn mark-rewrite-applied!
+  "Set :applied-at on the resolution map, preventing re-application at
+   the next PreCompact."
+  [project-root contradiction-id now]
   (let [file (paths/contradiction-file project-root contradiction-id)]
     (when (.exists (io/file file))
       (let [existing (read-contradiction file)
-            updated  (assoc existing
-                            :contradiction/resolved-at now
-                            :contradiction/resolved-by resolved-by)]
+            updated  (assoc-in existing [:contradiction/resolution :applied-at] now)]
         (spit file (pr-str updated))
         updated))))

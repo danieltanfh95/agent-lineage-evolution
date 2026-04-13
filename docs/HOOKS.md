@@ -308,7 +308,7 @@ reminder at end-of-turn is wasted work since the agent is done.
 **Side effects.**
 
 - `.succession/contradictions/<contradiction-id>.edn` — one file per
-  detected contradiction (categories 1, 4, 5, 6).
+  detected contradiction (categories 1, 4, 5, 6 — all go to the canonical file; 4 and 5 are pure-only, 1 and 6 also get LLM resolution).
 - `.succession/staging/<session-id>/deltas.jsonl` — a
   `:mark-contradiction` delta per detection, so PreCompact can act.
 - `.succession/staging/<session-id>/snapshot.edn` — rematerialized so
@@ -316,9 +316,12 @@ reminder at end-of-turn is wasted work since the agent is done.
 - One job file enqueued under `.succession/staging/jobs/<ts>-<uuid>.json`
   with `{:job/type "llm-reconcile"}`. The drain worker's `:llm-reconcile`
   handler walks `store/contradictions/open-contradictions` and calls
-  `llm/reconcile/resolve-category-2` and `-category-3-principle`.
+  the appropriate resolver: `resolve-category-2`, `-category-3-principle`,
+  `-self-contradictory` (cat-1), or `-contextual-override` (cat-6).
   Resolutions that pass `auto-applicable?` are marked resolved via
-  `store/contradictions/mark-resolved!`. A detached `bb succession worker
+  `store/contradictions/mark-resolved!` (5-arity, storing the resolution
+  map including `:new-text`). At the next PreCompact, pending rewrites
+  are applied to card text via `apply-pending-llm-rewrites`. A detached `bb succession worker
   drain` process may be spawned if no live lock is held.
 
 **Latency budget.** ≤2 s for the pure pass (bounded by disk reads over

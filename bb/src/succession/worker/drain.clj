@@ -102,20 +102,29 @@
         mark-ns      (requiring-resolve 'succession.store.contradictions/mark-resolved!)
         cat2-ns      (requiring-resolve 'succession.llm.reconcile/resolve-category-2)
         cat3p-ns     (requiring-resolve 'succession.llm.reconcile/resolve-category-3-principle)
+        cat1-ns      (requiring-resolve 'succession.llm.reconcile/resolve-self-contradictory)
+        cat6-ns      (requiring-resolve 'succession.llm.reconcile/resolve-contextual-override)
         auto-ns      (requiring-resolve 'succession.llm.reconcile/auto-applicable?)
+        cards-ns     (requiring-resolve 'succession.store.cards/read-promoted-snapshot)
+        cards-by-id  (->> (:cards (cards-ns project-root))
+                          (into {} (map (juxt :card/id identity))))
         open         (contra-ns project-root)]
     (vec
       (for [c open
             :let [cat    (:contradiction/category c)
+                  ctx    {:contradiction c
+                          :project-root  project-root
+                          :cards-by-id   cards-by-id}
                   result (cond
-                           (= cat :semantic-opposition)
-                           (when cat2-ns (cat2-ns {:contradiction c} config))
-                           (= cat :principle-violated)
-                           (when cat3p-ns (cat3p-ns {:contradiction c} config))
+                           (= cat :semantic-opposition)  (when cat2-ns  (cat2-ns  ctx config))
+                           (= cat :principle-violated)   (when cat3p-ns (cat3p-ns ctx config))
+                           (= cat :self-contradictory)   (when cat1-ns  (cat1-ns  ctx config))
+                           (= cat :contextual-override)  (when cat6-ns  (cat6-ns  ctx config))
                            :else nil)]
             :when (and result (:ok? result) auto-ns
                        (auto-ns (:resolution result) config))]
-        (do (mark-ns project-root (:contradiction/id c) :llm-reconcile now)
+        (do (mark-ns project-root (:contradiction/id c) :llm-reconcile now
+                     (:resolution result))
             {:kind :contradiction-resolved
              :id   (:contradiction/id c)})))))
 

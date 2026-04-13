@@ -193,7 +193,7 @@
                     (throw (ex-info "consult requires a situation string"
                                     {:opts opts})))
         config-map (config/load-config project-root)
-        session    (or (:session opts) (str "consult-" (System/currentTimeMillis)))
+        session    (or (:session opts) (str (random-uuid)))
         now        (java.util.Date.)
 
         ;; Load identity

@@ -348,12 +348,12 @@ at Stop; two require LLM judgement and run asynchronously.
 
 | # | Category | Detector | Lane | Resolution kind |
 |---|----------|----------|------|-----------------|
-| 1 | Self-contradictory claim | `detect-self-contradictory` | pure (Stop) | lower weight via violation penalty (no rewrite) |
+| 1 | Self-contradictory claim | `detect-self-contradictory` + `llm/reconcile/resolve-self-contradictory` | pure detect → LLM rewrite (Stop async) | rewrite to self-consistent text |
 | 2 | Semantic opposition | `llm/reconcile/resolve-category-2` | LLM (Stop async) | merge / rewrite / retain |
 | 3 | Observation vs card text (at principle tier) | `llm/reconcile/resolve-category-3-principle` | LLM (Stop async) | escalate / rewrite |
 | 4 | Tier violation | `detect-tier-violation` | pure (Stop) | `:apply-tier` — recompute via `tier/eligible-tier` |
 | 5 | Provenance conflict (same born-session + born-context) | `detect-provenance-conflicts` | pure (Stop) | `:merge-candidates` |
-| 6 | Contextual override (violated → sustained confirm) | `detect-contextual-override` | pure (Stop) | `:rewrite-candidate` flagged for extract |
+| 6 | Contextual override (violated → sustained confirm) | `detect-contextual-override` + `llm/reconcile/resolve-contextual-override` | pure detect → LLM rewrite (Stop async) | scope-qualify rewrite or mark intentional |
 
 The pure pass writes contradiction records to `store/contradictions` and
 stages `:mark-contradiction` deltas so PreCompact can act. The LLM pass is

@@ -11,7 +11,8 @@
    - `validate`: schema check — returns `nil` on success, a vector of
      `{:path ... :problem ...}` maps on failure.
 
-   Reference: `.plans/succession-identity-cycle.md` §Config.")
+   Reference: `.plans/succession-identity-cycle.md` §Config."
+  (:require [clojure.edn :as edn]))
 
 (def default-config
   "Baseline config. Every value tunable via `.succession/config.edn`
@@ -141,7 +142,7 @@
   (let [path (str root "/.succession/config.edn")
         file (java.io.File. path)]
     (if (.exists file)
-      (deep-merge default-config (read-string (slurp file)))
+      (deep-merge default-config (edn/read-string (slurp file)))
       default-config)))
 
 (defn- problem [path msg]

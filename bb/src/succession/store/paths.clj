@@ -14,7 +14,7 @@
      staging/{session-id}/contradictions.jsonl ; pure-detector output
      observations/{session-id}/{ts}-{uuid}.edn ; one file per observation
      contradictions/{contradiction-id}.edn     ; canonical contradiction records
-     judge/{session-id}/verdicts.jsonl         ; raw judge verdicts
+     judge/{session-id}/                        ; reserved, no active files
      archive/{pre-compact-ts}/promoted/        ; timestamped promoted snapshots
      escalations.jsonl                         ; user-facing escalations
      promote.lock                              ; advisory flock"
@@ -90,10 +90,6 @@
 (defn judge-dir
   ([project-root] (join (root project-root) "judge"))
   ([project-root session-id] (join (judge-dir project-root) session-id)))
-
-(defn judge-verdicts
-  [project-root session-id]
-  (join (judge-dir project-root session-id) "verdicts.jsonl"))
 
 (defn archive-dir
   ([project-root] (join (root project-root) "archive"))

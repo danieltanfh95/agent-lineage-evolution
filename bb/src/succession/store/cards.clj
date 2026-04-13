@@ -12,6 +12,7 @@
 
    Reference: `.plans/succession-identity-cycle.md` §Identity card."
   (:require [clj-yaml.core :as yaml]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [succession.config :as config]
@@ -190,7 +191,7 @@
   (let [path (paths/promoted-snapshot project-root)
         f    (io/file path)]
     (when (.exists f)
-      (let [payload (read-string (slurp f))]
+      (let [payload (edn/read-string (slurp f))]
         {:at    (:succession/snapshot-at payload)
          :cards (vec (vals (:succession/cards payload)))}))))
 

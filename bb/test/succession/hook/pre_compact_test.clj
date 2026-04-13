@@ -3,6 +3,7 @@
             [succession.config :as config]
             [succession.hook.pre-compact :as pre-compact]
             [succession.store.cards :as store-cards]
+            [succession.store.contradictions :as store-c]
             [succession.store.staging :as store-staging]
             [succession.store.archive :as store-archive]
             [succession.store.test-helpers :as h]))
@@ -70,6 +71,62 @@
     (pre-compact/promote! *root* "sess1" now config/default-config)
     (is (seq (store-archive/list-archives *root*))
         "at least one archive directory should exist")))
+
+(deftest llm-rewrite-applied-during-promote-test
+  (testing "promote! applies pending LLM rewrites from resolved contradictions"
+    (store-cards/write-card! *root*
+      (h/a-card {:id "contradicted-card" :tier :rule :text "Original contradictory text"}))
+    ;; Write a resolved contradiction with a pending rewrite
+    (store-c/write-contradiction!
+      *root*
+      {:succession/entity-type    :contradiction
+       :contradiction/id          "test-contra-1"
+       :contradiction/at          now
+       :contradiction/session     "sess1"
+       :contradiction/category    :self-contradictory
+       :contradiction/between     [{:card/id "contradicted-card"}]
+       :contradiction/detector    :pure
+       :contradiction/resolved-at now
+       :contradiction/resolved-by :llm-reconcile
+       :contradiction/resolution  {:category   :self-contradictory
+                                   :kind       :rewrite
+                                   :new-text   "Revised self-consistent text"
+                                   :rationale  "Was contradictory"
+                                   :confidence 0.9}
+       :contradiction/escalated?  false})
+    (pre-compact/promote! *root* "sess1" now config/default-config)
+    (let [cards (store-cards/load-all-cards *root*)
+          card  (first (filter #(= "contradicted-card" (:card/id %)) cards))]
+      (is (= "Revised self-consistent text" (:card/text card))
+          "LLM rewrite was applied to the card text"))))
+
+(deftest llm-rewrite-not-reapplied-test
+  (testing "promote! skips rewrites that already have :applied-at set"
+    (store-cards/write-card! *root*
+      (h/a-card {:id "stable-card" :tier :rule :text "Already rewritten text"}))
+    (store-c/write-contradiction!
+      *root*
+      {:succession/entity-type    :contradiction
+       :contradiction/id          "test-contra-2"
+       :contradiction/at          now
+       :contradiction/session     "sess1"
+       :contradiction/category    :self-contradictory
+       :contradiction/between     [{:card/id "stable-card"}]
+       :contradiction/detector    :pure
+       :contradiction/resolved-at now
+       :contradiction/resolved-by :llm-reconcile
+       :contradiction/resolution  {:category   :self-contradictory
+                                   :kind       :rewrite
+                                   :new-text   "Should not be applied again"
+                                   :rationale  "Already done"
+                                   :confidence 0.9
+                                   :applied-at now}
+       :contradiction/escalated?  false})
+    (pre-compact/promote! *root* "sess1" now config/default-config)
+    (let [cards (store-cards/load-all-cards *root*)
+          card  (first (filter #(= "stable-card" (:card/id %)) cards))]
+      (is (= "Already rewritten text" (:card/text card))
+          "Already-applied rewrite was not re-applied"))))
 
 (deftest promoted-snapshot-regenerated-test
   (testing "promoted.edn is up-to-date after promote!"

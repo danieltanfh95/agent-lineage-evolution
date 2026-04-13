@@ -138,6 +138,33 @@
         cards-by-id))
 
 ;; ------------------------------------------------------------------
+;; LLM rewrite application
+;; ------------------------------------------------------------------
+
+(defn- apply-pending-llm-rewrites
+  "After retier, apply any LLM-proposed :rewrite or :scope-qualify
+   resolutions that haven't been applied yet (:applied-at is nil).
+   Returns updated cards-by-id."
+  [cards-by-id project-root now]
+  (let [pending (->> (store-contra/load-all-contradictions project-root)
+                     (filter (fn [c]
+                               (and (= :llm-reconcile (:contradiction/resolved-by c))
+                                    (contains? #{:rewrite :scope-qualify}
+                                               (get-in c [:contradiction/resolution :kind]))
+                                    (nil? (get-in c [:contradiction/resolution :applied-at]))))))]
+    (reduce (fn [acc c]
+              (let [card-id  (get-in c [:contradiction/between 0 :card/id])
+                    new-text (get-in c [:contradiction/resolution :new-text])
+                    card     (get acc card-id)]
+                (if (and card new-text)
+                  (do (store-contra/mark-rewrite-applied! project-root (:contradiction/id c) now)
+                      (assoc acc card-id
+                             (card/rewrite card new-text
+                                           (str "llm-" (:contradiction/id c)))))
+                  acc)))
+            cards-by-id pending)))
+
+;; ------------------------------------------------------------------
 ;; Filesystem operations
 ;; ------------------------------------------------------------------
 
@@ -171,10 +198,11 @@
           after-apply (reduce (fn [acc d] (apply-delta acc d session now))
                               initial deltas)
           obs-by-card (store-obs/observations-by-card
-                        (store-obs/load-all-observations project-root))
+                        (store-obs/load-observations-for-cards project-root (set (keys after-apply))))
           after-retier (retier-by-metrics after-apply obs-by-card now config)]
-      (clear-tier-files! project-root)
-      (write-all-cards! project-root after-retier)
+      (let [after-llm-rewrites (apply-pending-llm-rewrites after-retier project-root now)]
+        (clear-tier-files! project-root)
+        (write-all-cards! project-root after-llm-rewrites))
       (store-cards/materialize-promoted! project-root)
       ;; Fix 3: resolve all open tier-violation contradictions — retier just ran,
       ;; so any remaining :tier-violation is stale by invariant.
@@ -183,6 +211,18 @@
                                                     (nil? (:contradiction/resolved-at %)))))]
         (doseq [c open-tier-violations]
           (store-contra/mark-resolved! project-root (:contradiction/id c) :pre-compact now)))
+      ;; Dedup: for each (card, category) pair, keep only the most recent open contradiction.
+      ;; Card lives in [:contradiction/between 0 :card/id]; sort oldest-first by :contradiction/at.
+      (let [by-card-cat (->> (store-contra/load-all-contradictions project-root)
+                             (remove :contradiction/resolved-at)
+                             (group-by (juxt #(get-in % [:contradiction/between 0 :card/id])
+                                             :contradiction/category)))
+            to-resolve  (mapcat (fn [[_ group]]
+                                  (when (> (count group) 1)
+                                    (butlast (sort-by :contradiction/at group))))
+                                by-card-cat)]
+        (doseq [c to-resolve]
+          (store-contra/mark-resolved! project-root (:contradiction/id c) :pre-compact-dedup now)))
       (store-staging/clear-session! project-root session)
       ;; Fix 1: clear orphan staging dirs accumulated from prior sessions.
       (doseq [orphan-id (store-sessions/orphan-staging project-root session)]

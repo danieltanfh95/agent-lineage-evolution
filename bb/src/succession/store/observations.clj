@@ -9,12 +9,13 @@
    the per-session rollup.
 
    EDN (not JSONL) because observations carry `#inst` values and we
-   round-trip via `read-string` + `pr-str`, which handles reader literals
+   round-trip via `edn/read-string` + `pr-str`, which handles reader literals
    natively.
 
    This namespace is the I/O half; the pure shape lives in
    `domain/observation`."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [succession.store.paths :as paths]))
 
@@ -45,10 +46,10 @@
     file))
 
 (defn read-observation
-  "Read a single observation file back into a map. `pr-str`/`read-string`
+  "Read a single observation file back into a map. `pr-str`/`edn/read-string`
    round-trips `#inst`, keywords, and sets natively."
   [file-path]
-  (read-string (slurp file-path)))
+  (edn/read-string (slurp file-path)))
 
 (defn- list-edn-files
   [^java.io.File dir]
@@ -82,6 +83,26 @@
            (filter (fn [^java.io.File f] (.isDirectory f)))
            (mapcat (fn [^java.io.File d]
                      (load-session-observations project-root (.getName d))))
+           vec))))
+
+(defn load-observations-for-cards
+  "Like `load-all-observations` but skips observations whose
+   `:observation/card-id` is not in `card-ids`. Reduces memory when
+   PreCompact only needs observations for the current working set."
+  [project-root card-ids]
+  (let [root (io/file (paths/observations-dir project-root))]
+    (if-not (.exists root)
+      []
+      (->> (.listFiles root)
+           (filter (fn [^java.io.File f] (.isDirectory f)))
+           (mapcat (fn [^java.io.File d]
+                     (->> (list-edn-files d)
+                          (keep (fn [^java.io.File f]
+                                  (try
+                                    (let [obs (read-observation (.getPath f))]
+                                      (when (contains? card-ids (:observation/card-id obs))
+                                        obs))
+                                    (catch Throwable _ nil)))))))
            vec))))
 
 (defn observations-by-card

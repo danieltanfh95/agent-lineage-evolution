@@ -15,7 +15,8 @@
    EDN for the snapshot (whole-value replace, reader literals).
 
    Reference: `.plans/succession-identity-cycle.md` §Delta (staging log)."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [succession.store.paths :as paths]))
 
@@ -78,7 +79,7 @@
       (with-open [r (io/reader f)]
         (->> (line-seq r)
              (remove str/blank?)
-             (map read-string)
+             (map edn/read-string)
              vec)))))
 
 ;; ------------------------------------------------------------------
@@ -111,8 +112,9 @@
               (fnil conj []) (:delta/payload delta))
 
       :mark-contradiction
-      (update snap :staging/contradiction-ids
-              (fnil conj []) (or id (get-in delta [:delta/payload :contradiction/id]))))))
+      (let [contra-id (or id (get-in delta [:delta/payload :contradiction/id]))]
+        (cond-> snap
+          contra-id (update :staging/contradiction-ids (fnil conj []) contra-id))))))
 
 (defn materialize-snapshot
   "Pure: fold a delta seq into a staging snapshot map. Deterministic
@@ -142,7 +144,7 @@
   (let [path (paths/staging-snapshot project-root session-id)
         f    (io/file path)]
     (when (.exists f)
-      (read-string (slurp f)))))
+      (edn/read-string (slurp f)))))
 
 (defn rematerialize!
   "Re-fold the delta log and overwrite the snapshot. Called at Stop

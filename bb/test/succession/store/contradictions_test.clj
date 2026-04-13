@@ -57,3 +57,25 @@
   (let [[c] (store-c/load-all-contradictions *root*)]
     (is (= :llm (:contradiction/resolved-by c)))
     (is (some? (:contradiction/resolved-at c)))))
+
+(deftest mark-resolved-with-resolution-test
+  (store-c/write-contradiction! *root* (a-contradiction "cn1" :self-contradictory))
+  (let [resolution {:category :self-contradictory
+                    :kind :rewrite
+                    :new-text "Revised text"
+                    :rationale "Lines were contradictory"
+                    :confidence 0.9}]
+    (store-c/mark-resolved! *root* "cn1" :llm-reconcile #inst "2026-04-11T13:00:00Z" resolution))
+  (let [[c] (store-c/load-all-contradictions *root*)]
+    (is (= :llm-reconcile (:contradiction/resolved-by c)))
+    (is (= :rewrite (get-in c [:contradiction/resolution :kind])))
+    (is (= "Revised text" (get-in c [:contradiction/resolution :new-text])))
+    (is (= 0.9 (get-in c [:contradiction/resolution :confidence])))))
+
+(deftest mark-rewrite-applied-test
+  (store-c/write-contradiction! *root* (a-contradiction "cn1" :self-contradictory))
+  (store-c/mark-resolved! *root* "cn1" :llm-reconcile #inst "2026-04-11T13:00:00Z"
+                          {:kind :rewrite :new-text "New text" :confidence 0.9})
+  (store-c/mark-rewrite-applied! *root* "cn1" #inst "2026-04-11T14:00:00Z")
+  (let [[c] (store-c/load-all-contradictions *root*)]
+    (is (some? (get-in c [:contradiction/resolution :applied-at])))))

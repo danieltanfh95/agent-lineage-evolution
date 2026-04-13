@@ -20,7 +20,8 @@
    after a PreCompact to see what a promotion changed.
 
    Reference: `.plans/succession-identity-cycle.md` §CLI surface."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [succession.store.cards :as store-cards]
             [succession.store.paths :as paths]))
@@ -51,7 +52,7 @@
                     (store-cards/load-all-cards pseudo-root)))
       (let [snap-file (io/file pseudo-root "promoted.edn")]
         (if (.exists snap-file)
-          (let [snap (read-string (slurp snap-file))]
+          (let [snap (edn/read-string (slurp snap-file))]
             (into {} (map (juxt :card/id identity) (or (:cards snap) []))))
           ;; Fall back to walking the archive tree by hand — reuses the
           ;; same read-card fn store-cards exports.

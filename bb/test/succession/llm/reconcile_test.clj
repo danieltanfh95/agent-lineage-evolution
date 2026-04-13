@@ -69,6 +69,23 @@
   (is (nil? (reconcile/parse-response nil)))
   (is (nil? (reconcile/parse-response "{\"no-category\":true}"))))
 
+(deftest category-1-prompt-includes-card-test
+  (let [prompt (reconcile/build-category-1-prompt
+                 {:card (a-card "verify-via-repl" :principle)})]
+    (is (str/includes? prompt "verify-via-repl"))
+    (is (str/includes? prompt "CARD"))
+    (is (str/includes? prompt "self-consistent"))
+    (is (str/includes? prompt "self-contradictory"))))
+
+(deftest category-6-prompt-includes-card-and-pattern-test
+  (let [prompt (reconcile/build-category-6-prompt
+                 {:card (a-card "data-first-design" :rule)
+                  :prior-description "Rule is skipped when in plan mode"})]
+    (is (str/includes? prompt "data-first-design"))
+    (is (str/includes? prompt "Rule is skipped when in plan mode"))
+    (is (str/includes? prompt "scope-qualify"))
+    (is (str/includes? prompt "intentional"))))
+
 (deftest auto-applicable-confidence-threshold-test
   (testing "auto-applicable when confidence >= threshold"
     (is (reconcile/auto-applicable?

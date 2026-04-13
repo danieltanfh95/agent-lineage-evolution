@@ -33,7 +33,8 @@
 
    Reference: `.plans/succession-identity-cycle.md` §Disk layout and
    the async-lane plan §Worker lifecycle & crash recovery."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [succession.store.paths :as paths])
   (:import (java.nio.file Files Path Paths)
            (java.nio.file.attribute FileAttribute)))
@@ -99,7 +100,7 @@
           f        (io/file path-str)]
       (when (.exists f)
         (try
-          (let [existing (try (read-string (slurp f)) (catch Throwable _ {}))
+          (let [existing (try (edn/read-string (slurp f)) (catch Throwable _ {}))
                 now      (java.util.Date.)]
             (spit path-str (pr-str (assoc existing :last-beat now)))
             (.setLastModified f (System/currentTimeMillis)))
