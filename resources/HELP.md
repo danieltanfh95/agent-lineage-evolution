@@ -22,12 +22,12 @@ turns about the same thing.
   compact          Compact staging deltas into the card store
   status           Dashboard overview of the whole .succession/ folder
   staging          Inspect or prune the staging area
-  observations     Inspect or prune observation files  (status | prune --older-than Nd)
-  contradictions   Inspect or clear contradictions  (list | clear-resolved [--older-than Nd])
+  observations     Inspect or prune observation files  (status | prune --older-than N(s|m|h|d))
+  contradictions   Inspect or clear contradictions  (list | clear-resolved [--older-than N(s|m|h|d)])
   archive          Inspect or prune archive snapshots  (list | prune --keep-last N)
   queue            Inspect the async judge queue
   worker           Manage the drain worker  (drain | logs [--follow])
-  identity-diff    Diff two archived identity snapshots  (--last | --list)
+  identity-diff    Diff two archived identity snapshots  (list | last | <ts1> [ts2])
   config           Validate config.edn and hook paths
   statusline       Emit the Claude Code status line fragment
   --install-skill  Write this document as .claude/skills/succession/SKILL.md

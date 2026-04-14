@@ -110,15 +110,20 @@
 (deftest queue-clear-dead-all-test
   (seed-dead-job! "s1") (Thread/sleep 5)
   (seed-dead-job! "s2")
-  (let [out (stdout-of (fn [] (q/run *root* ["clear-dead"])))]
-    (is (str/includes? out "deleted 2"))
-    (is (= 0 (jobs/count-dead *root*)))))
+  (testing "bare clear-dead is a dry run"
+    (let [out (stdout-of (fn [] (q/run *root* ["clear-dead"])))]
+      (is (str/includes? out "dry run"))
+      (is (= 2 (jobs/count-dead *root*)))))
+  (testing "clear-dead --confirm actually deletes"
+    (let [out (stdout-of (fn [] (q/run *root* ["clear-dead" "--confirm"])))]
+      (is (str/includes? out "deleted 2"))
+      (is (= 0 (jobs/count-dead *root*))))))
 
 (deftest queue-clear-dead-older-than-test
   (seed-dead-job! "s1")
   (testing "a 1-day cutoff leaves fresh files alone"
     (let [out (stdout-of (fn [] (q/run *root* ["clear-dead" "--older-than" "1d"])))]
-      (is (str/includes? out "deleted 0"))
+      (is (str/includes? out "0 dead-lettered"))
       (is (= 1 (jobs/count-dead *root*)))))
   (testing "bogus duration string is a usage error"
     (let [err (with-out-str

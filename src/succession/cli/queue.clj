@@ -163,18 +163,45 @@
              "d" (* 24 60 60 1000))))))
 
 (defn run-clear-dead
-  "`queue clear-dead` — delete every dead pair.
-   `queue clear-dead --older-than 7d` — only delete pairs older than
-   the cutoff."
+  "`queue clear-dead` — dry-run list of dead pairs to clear.
+   `queue clear-dead --confirm` — actually delete.
+   `queue clear-dead --older-than 7d` — filter by age."
   [project-root args]
-  (let [args (vec args)
-        older (when (= (first args) "--older-than")
-                (parse-duration (second args)))]
-    (if (and (= (first args) "--older-than") (nil? older))
-      (err! "usage: succession queue clear-dead [--older-than <N(s|m|h|d)>]")
-      (let [n (store-jobs/clear-dead! project-root older)]
-        (println (format "deleted %d dead-lettered pair(s)" n))
-        0))))
+  (let [args      (vec args)
+        confirm?  (boolean (some #{"--confirm"} args))
+        rest-args (vec (remove #{"--confirm"} args))
+        older     (when (= (first rest-args) "--older-than")
+                    (parse-duration (second rest-args)))]
+    (if (and (= (first rest-args) "--older-than") (nil? older))
+      (err! "usage: succession queue clear-dead [--older-than <N(s|m|h|d)>] [--confirm]")
+      (let [all      (store-jobs/list-dead project-root)
+            now-ms   (System/currentTimeMillis)
+            to-clear (if older
+                       (filter (fn [d]
+                                 (let [at ^java.util.Date (:job/at d)]
+                                   (or (nil? at)
+                                       (> (- now-ms (.getTime at)) older))))
+                               all)
+                       all)]
+        (if (empty? to-clear)
+          (do (println (str "0 dead-lettered job(s) to clear"
+                            (when older (str " older than " (second rest-args)))))
+              0)
+          (do
+            (println (format "%d dead-lettered job(s)%s%s:"
+                             (count to-clear)
+                             (if older (str " older than " (second rest-args)) "")
+                             (if confirm? "" " (dry run — add --confirm to delete)")))
+            (println (format "  %-48s  %-12s  %s" "filename" "type" "error-class"))
+            (doseq [d to-clear]
+              (println (format "  %-48s  %-12s  %s"
+                               (or (:job/filename d) "?")
+                               (or (:job/type d) "?")
+                               (or (:error/class d) ""))))
+            (when confirm?
+              (let [n (store-jobs/clear-dead! project-root older)]
+                (println (format "deleted %d dead-lettered job(s)" n))))
+            0))))))
 
 ;; ------------------------------------------------------------------
 ;; Dispatch

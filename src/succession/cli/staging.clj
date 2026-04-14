@@ -64,35 +64,76 @@
 
 (defn run-prune
   [project-root args]
-  (let [args (vec args)]
+  (let [args      (vec args)
+        confirm?  (boolean (some #{"--confirm"} args))
+        rest-args (vec (remove #{"--confirm"} args))]
     (cond
-      (= (first args) "--keep-last")
-      (let [n-str  (second args)
-            n      (when n-str
-                     (try (Long/parseLong n-str)
-                          (catch NumberFormatException _ nil)))]
+      (= (first rest-args) "--keep-last")
+      (let [n-str (second rest-args)
+            n     (when n-str
+                    (try (Long/parseLong n-str)
+                         (catch NumberFormatException _ nil)))]
         (if (nil? n)
-          (err! "usage: succession staging prune --keep-last <N>")
-          (let [deleted (store-staging/prune-sessions! project-root {:keep-last n})]
-            (println (format "deleted %d staging session(s) (kept %d most recent)" deleted n))
-            0)))
+          (err! "usage: succession staging prune --keep-last <N> [--confirm]")
+          (let [sessions  (store-staging/list-sessions project-root)
+                to-delete (drop n sessions)]
+            (if (empty? to-delete)
+              (do (println (format "0 staging session(s) to delete (have %d, keeping %d)"
+                                   (count sessions) n))
+                  0)
+              (do
+                (println (format "%d staging session(s) to delete%s (keeping %d most recent):"
+                                 (count to-delete)
+                                 (if confirm? "" " (dry run — add --confirm to delete)")
+                                 n))
+                (doseq [s to-delete]
+                  (println (format "  %s  (%s)" (:session/id s) (format-date (:session/mtime s)))))
+                (when confirm?
+                  (let [deleted (store-staging/prune-sessions! project-root {:keep-last n})]
+                    (println (format "deleted %d staging session(s)" deleted))))
+                0)))))
 
-      (= (first args) "--older-than")
-      (let [dur (parse-duration (second args))]
+      (= (first rest-args) "--older-than")
+      (let [dur-str (second rest-args)
+            dur     (parse-duration dur-str)]
         (if (nil? dur)
-          (err! "usage: succession staging prune --older-than <N(s|m|h|d)>")
-          (let [deleted (store-staging/prune-sessions! project-root {:older-than-ms dur})]
-            (println (format "deleted %d staging session(s) older than %s"
-                             deleted (second args)))
-            0)))
+          (err! "usage: succession staging prune --older-than <N(s|m|h|d)> [--confirm]")
+          (let [sessions  (store-staging/list-sessions project-root)
+                now-ms    (System/currentTimeMillis)
+                to-delete (filter #(> (- now-ms (:session/mtime %)) dur) sessions)]
+            (if (empty? to-delete)
+              (do (println (format "0 staging session(s) to delete older than %s" dur-str))
+                  0)
+              (do
+                (println (format "%d staging session(s) older than %s%s:"
+                                 (count to-delete)
+                                 dur-str
+                                 (if confirm? "" " (dry run — add --confirm to delete)")))
+                (doseq [s to-delete]
+                  (println (format "  %s  (%s)" (:session/id s) (format-date (:session/mtime s)))))
+                (when confirm?
+                  (let [deleted (store-staging/prune-sessions! project-root {:older-than-ms dur})]
+                    (println (format "deleted %d staging session(s)" deleted))))
+                0)))))
 
-      (empty? args)
-      (let [deleted (store-staging/prune-sessions! project-root {})]
-        (println (format "deleted %d staging session(s)" deleted))
-        0)
+      (empty? rest-args)
+      (let [sessions (store-staging/list-sessions project-root)]
+        (if (empty? sessions)
+          (do (println "0 staging session(s) to delete")
+              0)
+          (do
+            (println (format "%d staging session(s)%s:"
+                             (count sessions)
+                             (if confirm? "" " (dry run — add --confirm to delete)")))
+            (doseq [s sessions]
+              (println (format "  %s  (%s)" (:session/id s) (format-date (:session/mtime s)))))
+            (when confirm?
+              (let [deleted (store-staging/prune-sessions! project-root {})]
+                (println (format "deleted %d staging session(s)" deleted))))
+            0)))
 
       :else
-      (err! "usage: succession staging prune [--keep-last N | --older-than <N(s|m|h|d)>]"))))
+      (err! "usage: succession staging prune [--keep-last N | --older-than <N(s|m|h|d)>] [--confirm]"))))
 
 ;; ------------------------------------------------------------------
 ;; Dispatch

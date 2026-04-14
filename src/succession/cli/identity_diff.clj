@@ -1,30 +1,57 @@
 (ns succession.cli.identity-diff
-  "`succession identity-diff <ts1> <ts2>` — compare
-   two archived identity snapshots.
+  "`succession identity-diff <op>` — compare archived identity snapshots.
 
-   Every PreCompact run writes `.succession/archive/{ts}/promoted/...`
-   before rewriting the live tree. identity-diff loads two of these
-   archives (or one archive vs. current) and reports what changed:
+   Subcommands:
 
-     - cards added       (present in ts2, absent in ts1)
-     - cards removed     (present in ts1, absent in ts2)
-     - cards retiered    (same id, different tier)
-     - cards rewritten   (same id, same tier, different text)
+     list
+       Tabulates archive snapshots: timestamp, card counts. Newest first.
 
-   `ts1` and `ts2` are archive directory names as returned by
-   `store/archive/list-archives`. `ts2` may also be the literal string
-   `current` to diff the most recent archive against the live promoted
-   tree.
+     last
+       Diff the two most recent archives.
 
-   Intent: an auditing tool. Not part of the hot path. Run manually
-   after a PreCompact to see what a promotion changed.
+     <ts1> [ts2]
+       Diff two specific archives. ts2 defaults to \"current\" (live tree).
+
+   Backward-compat aliases: --list → list, --last → last.
+   Bare invocation (no args) diffs the last two archives.
+
+   Changes reported: cards added, removed, retiered, rewritten.
 
    Reference: `.plans/succession-identity-cycle.md` §CLI surface."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [succession.store.archive :as store-archive]
             [succession.store.cards :as store-cards]
             [succession.store.paths :as paths]))
+
+;; ------------------------------------------------------------------
+;; Helpers
+;; ------------------------------------------------------------------
+
+(defn- format-ts
+  "Convert archive timestamp `2026-04-11T05-36-11-629Z` to readable
+   `2026-04-11T05:36:11Z` form."
+  [ts]
+  (when ts
+    (let [date-part (subs ts 0 10)
+          rest      (subs ts 11)
+          parts     (str/split rest #"-" 4)]
+      (if (>= (count parts) 3)
+        (str date-part "T" (str/join ":" (take 3 parts)) "Z")
+        ts))))
+
+(defn- read-card-count
+  "Read :succession/card-count from archive/{ts}/promoted.edn."
+  [project-root ts]
+  (let [f (io/file (paths/archive-dir project-root ts) "promoted.edn")]
+    (when (.exists f)
+      (try (:succession/card-count (edn/read-string (slurp f)))
+           (catch Throwable _ nil)))))
+
+;; ------------------------------------------------------------------
+;; Snapshot loading
+;; ------------------------------------------------------------------
 
 (defn- load-snapshot-cards
   "Load cards from either a named archive or the live promoted tree.
@@ -117,49 +144,65 @@
                         (:retiered result) (:rewritten result)])
     (println "(no differences)")))
 
+;; ------------------------------------------------------------------
+;; list
+;; ------------------------------------------------------------------
+
+(defn- run-list [project-root]
+  (let [archives     (store-archive/list-archives project-root)
+        newest-first (reverse archives)]
+    (if (empty? newest-first)
+      (println "succession identity-diff: 0 archive snapshots")
+      (do
+        (println (format "%-28s  %s" "timestamp" "cards"))
+        (println (str (apply str (repeat 28 "-")) "  -----"))
+        (doseq [ts newest-first]
+          (let [n (read-card-count project-root ts)]
+            (println (format "%-28s  %s"
+                             (format-ts ts)
+                             (if n (str n) "?")))))))
+    0))
+
+;; ------------------------------------------------------------------
+;; last / diff
+;; ------------------------------------------------------------------
+
+(defn- run-last [project-root]
+  (let [archives (store-archive/list-archives project-root)
+        dirs     (take-last 2 archives)]
+    (if (< (count dirs) 2)
+      (do (binding [*out* *err*]
+            (println "identity-diff last: fewer than 2 archive snapshots found"))
+          (System/exit 2))
+      (let [ts1    (first dirs)
+            ts2    (second dirs)
+            before (load-snapshot-cards project-root ts1)
+            after  (load-snapshot-cards project-root ts2)
+            result (diff-cards before after)]
+        (print-report! result {:ts1 ts1 :ts2 ts2})
+        (System/exit 0)))))
+
+(defn- run-diff [project-root ts1 ts2]
+  (let [ts2 (or ts2 "current")]
+    (if (str/blank? ts1)
+      (do (binding [*out* *err*]
+            (println "usage: succession identity-diff <ts1> [ts2|current]"))
+          (System/exit 2))
+      (let [before (load-snapshot-cards project-root ts1)
+            after  (load-snapshot-cards project-root ts2)
+            result (diff-cards before after)]
+        (print-report! result {:ts1 ts1 :ts2 ts2})
+        (System/exit 0)))))
+
+;; ------------------------------------------------------------------
+;; Dispatch
+;; ------------------------------------------------------------------
+
 (defn run
   [project-root args]
-  (let [[flag] args]
-    (cond
-      (= flag "--list")
-      (let [archive-base (io/file project-root ".succession" "archive")]
-        (if-not (.exists archive-base)
-          (println "(no archives found)")
-          (doseq [ts (->> (.listFiles archive-base)
-                          (filter #(.isDirectory %))
-                          (map #(.getName %))
-                          sort)]
-            (println ts)))
-        (System/exit 0))
-
-      (= flag "--last")
-      (let [archive-base (io/file project-root ".succession" "archive")
-            dirs         (when (.exists archive-base)
-                           (->> (.listFiles archive-base)
-                                (filter #(.isDirectory %))
-                                (map #(.getName %))
-                                sort
-                                (take-last 2)))]
-        (if (< (count dirs) 2)
-          (do (binding [*out* *err*]
-                (println "identity-diff --last: fewer than 2 archive snapshots found"))
-              (System/exit 2))
-          (let [ts1    (first dirs)
-                ts2    (second dirs)
-                before (load-snapshot-cards project-root ts1)
-                after  (load-snapshot-cards project-root ts2)
-                result (diff-cards before after)]
-            (print-report! result {:ts1 ts1 :ts2 ts2})
-            (System/exit 0))))
-
-      :else
-      (let [[ts1 ts2] args]
-        (if (or (str/blank? ts1) (str/blank? ts2))
-          (do (binding [*out* *err*]
-                (println "usage: succession identity-diff <ts1> <ts2|current>"))
-              (System/exit 2))
-          (let [before (load-snapshot-cards project-root ts1)
-                after  (load-snapshot-cards project-root ts2)
-                result (diff-cards before after)]
-            (print-report! result {:ts1 ts1 :ts2 ts2})
-            (System/exit 0)))))))
+  (let [[op & rst] args]
+    (case op
+      ("list" "--list") (run-list project-root)
+      ("last" "--last") (run-last project-root)
+      nil               (run-last project-root)
+      (run-diff project-root op (first rst)))))
