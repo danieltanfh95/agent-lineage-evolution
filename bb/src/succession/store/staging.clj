@@ -172,3 +172,46 @@
     (if (.exists dir)
       (do (delete-tree! dir) true)
       false)))
+
+(def ^:private uuid-re
+  #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+(defn list-sessions
+  "Return [{:session/id :session/mtime}] for all staging sessions,
+   sorted newest-first. Excludes non-UUID dirs like `jobs/`."
+  [project-root]
+  (let [dir (io/file (paths/staging-dir project-root))]
+    (if-not (.exists dir)
+      []
+      (->> (.listFiles dir)
+           (filter #(and (.isDirectory ^java.io.File %)
+                         (re-matches uuid-re (.getName ^java.io.File %))))
+           (map #(hash-map :session/id   (.getName ^java.io.File %)
+                           :session/mtime (.lastModified ^java.io.File %)))
+           (sort-by :session/mtime #(compare %2 %1))
+           vec))))
+
+(defn prune-sessions!
+  "Delete staging sessions (and co-located observations) WITHOUT running
+   the promotion pipeline. Use when old sessions contain stale/invalid
+   deltas you don't want applied.
+
+   Options (exactly one should be non-nil for selective pruning):
+     :keep-last     — keep the N most recent sessions, delete the rest
+     :older-than-ms — delete sessions whose mtime is older than this ms threshold
+
+   If neither option is provided, deletes all sessions. Returns count deleted."
+  [project-root {:keys [keep-last older-than-ms]}]
+  (let [sessions  (list-sessions project-root)
+        now       (System/currentTimeMillis)
+        to-delete (cond
+                    keep-last
+                    (drop keep-last sessions)
+                    older-than-ms
+                    (filter #(> (- now (:session/mtime %)) older-than-ms) sessions)
+                    :else sessions)]
+    (doseq [{:keys [session/id]} to-delete]
+      (clear-session! project-root id)
+      (let [obs-dir (io/file (paths/observations-dir project-root id))]
+        (when (.exists obs-dir) (delete-tree! obs-dir))))
+    (count to-delete)))

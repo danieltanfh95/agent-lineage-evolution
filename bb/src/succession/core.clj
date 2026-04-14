@@ -86,6 +86,18 @@
            (project-root) (cons op rest-args))
           0))
 
+    "compact"
+    (System/exit
+      (or ((requiring-resolve 'succession.cli.compact/run)
+           (project-root) rest-args)
+          0))
+
+    "staging"
+    (System/exit
+      (or ((requiring-resolve 'succession.cli.staging/run)
+           (project-root) (cons op rest-args))
+          0))
+
     "statusline"
     (System/exit
       (or ((requiring-resolve 'succession.cli.statusline/run)
