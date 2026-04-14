@@ -1,5 +1,5 @@
 (ns succession.cli.config-validate
-  "`bb -m succession.core config <subcmd>` — config tools.
+  "`succession config <subcmd>` — config tools.
 
    Subcommands:
 
@@ -11,7 +11,8 @@
                   Idempotent — will refuse to overwrite an existing file.
 
    Reference: `.plans/succession-identity-cycle.md` §Config."
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [succession.config :as config]
@@ -87,6 +88,18 @@
     " ;; --- Whitepaper §3.3.3 knowledge categories ---\n"
     " :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]}\n"))
 
+(defn- check-hook-paths [project-root]
+  (let [settings-file (str project-root "/.claude/settings.local.json")]
+    (when (.exists (io/file settings-file))
+      (let [settings (json/parse-string (slurp settings-file) true)
+            hooks    (mapcat val (:hooks settings))
+            commands (mapcat #(or (:commands %) []) hooks)
+            cp-args  (keep #(second (re-find #"-cp\s+(\S+)" %)) commands)]
+        (doseq [path cp-args]
+          (if (.exists (io/file path))
+            (println (format "  [ok] hook classpath   %s" path))
+            (println (format "  [WARN] hook classpath missing: %s" path))))))))
+
 (defn validate!
   "Validate the effective config for `project-root`. Returns 0 on
    success, 1 on validation errors, and prints a report."
@@ -96,11 +109,13 @@
     (if (empty? problems)
       (do (println "config valid: " (str project-root "/.succession/config.edn"))
           (println "effective values merged over defaults.")
+          (check-hook-paths project-root)
           0)
       (do (println "config INVALID:" (str project-root "/.succession/config.edn"))
           (doseq [p problems]
             (println (format "  - %s: %s"
                              (pr-str (:path p)) (:problem p))))
+          (check-hook-paths project-root)
           1))))
 
 (defn show!
@@ -135,7 +150,7 @@
               "show"     (show! project-root)
               "init"     (init! project-root)
               (do (binding [*out* *err*]
-                    (println "usage: bb -m succession.core config <validate|show|init>")
+                    (println "usage: succession config <validate|show|init>")
                     (when sub (println "unknown subcommand:" sub)))
                   2))]
     (System/exit (or rc 0))))

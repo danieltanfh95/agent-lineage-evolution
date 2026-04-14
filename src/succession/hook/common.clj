@@ -130,20 +130,6 @@
 ;; Async drain worker spawn — shared by post-tool-use and stop
 ;; ------------------------------------------------------------------
 
-(defn- src-root
-  "Best-effort location of `bb/src` for the -cp flag. Uses the hook
-   payload's `project-root` (the actual project directory) rather than
-   `user.dir` (which may differ when Claude Code spawns the hook from
-   an unexpected cwd). Falls back to `SUCCESSION_BB_SRC` env var, then
-   `user.dir` as a last resort."
-  [project-root]
-  (let [candidates [(io/file project-root "bb" "src")
-                    (io/file project-root "src")
-                    (io/file (System/getProperty "user.dir") "bb" "src")]]
-    (or (some #(when (.exists ^java.io.File %) (.getPath ^java.io.File %)) candidates)
-        (System/getenv "SUCCESSION_BB_SRC")
-        (System/getProperty "user.dir"))))
-
 (defn- worker-already-running?
   "Cheap check used by the hook path. Returns true when a lock file
    exists AND its mtime is within the stale window, meaning some
@@ -155,7 +141,7 @@
          (not (locks/stale-at? path stale-seconds)))))
 
 (defn ensure-worker-running!
-  "Spawn `bb succession worker drain` as a detached subprocess unless
+  "Spawn `succession worker drain` as a detached subprocess unless
    a live worker is already holding the lock. Returns the babashka
    process record on spawn, nil if we skipped.
 
@@ -170,7 +156,7 @@
            :out      (paths/jobs-worker-log project-root)
            :err      (paths/jobs-worker-log project-root)
            :shutdown nil}
-          "bb" "-cp" (src-root project-root) "-m" "succession.core" "worker" "drain")
+          "succession" "worker" "drain")
         (catch Throwable _ nil)))))
 
 (defn enqueue-and-ensure-worker!

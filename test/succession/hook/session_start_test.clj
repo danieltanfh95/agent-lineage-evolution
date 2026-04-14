@@ -21,7 +21,7 @@
   (testing "no cards yet — context still has the footer"
     (let [ctx (ss/build-context [] [])]
       (is (str/includes? ctx "No promoted identity cards yet"))
-      (is (str/includes? ctx "bb succession consult"))
+      (is (str/includes? ctx "succession consult"))
       (is (str/includes? ctx "succession-consult")))))
 
 (deftest cards-rendered-by-tier-test

@@ -1,5 +1,7 @@
-{:paths ["src" "test"]
+{:paths ["src" "test" "resources"]
  :min-bb-version "1.0.0"
+ :main succession.core
+ :bbin/bin {succession {:main-opts ["-m" "succession.core"]}}
 
  ;; Task aliases so `bb succession <...>` works anywhere the project
  ;; bb.edn is visible. The task forwards its positional args to
@@ -8,4 +10,8 @@
  {succession
   {:doc "Run a Succession CLI or hook via `bb succession <mode> <op> ...`"
    :requires ([succession.core :as core])
-   :task (apply core/-main *command-line-args*)}}}
+   :task (apply core/-main *command-line-args*)}
+  test
+  {:doc "Run all tests (pass --unit to skip integration tests)"
+   :requires ([succession.test-runner :as runner])
+   :task (apply runner/-main *command-line-args*)}}}

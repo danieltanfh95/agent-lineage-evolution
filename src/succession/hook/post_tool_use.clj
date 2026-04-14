@@ -22,7 +22,7 @@
 
    **Async (filesystem-queued drain worker)**
      7. Enqueue a `:judge` job to `.succession/staging/jobs/` via
-        `common/enqueue-and-ensure-worker!`. A detached `bb succession
+        `common/enqueue-and-ensure-worker!`. A detached `succession
         worker drain` process claims the job, runs `llm/judge/judge-
         tool-call`, and writes verdicts as observation files. The
         parent hook returns immediately so Claude Code is never
@@ -122,7 +122,7 @@
   (when (and every-n-turns (pos? every-n-turns)
              (zero? (mod calls every-n-turns)))
     (str "\n\n_Consult your identity when uncertain: "
-         "`bb succession consult \"<situation>\"`._")))
+         "`succession consult \"<situation>\"`._")))
 
 (defn build-reminder
   "Pure composition step — given the ranked candidates + calls-count +

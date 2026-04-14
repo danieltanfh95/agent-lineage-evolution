@@ -1,9 +1,9 @@
 (ns succession.cli.import
-  "`bb -m succession.core import <old-rules-dir>` — one-shot
+  "`succession import <old-rules-dir>` — one-shot
    migration from the old `.succession/rules/*.md` YAML-frontmatter
    rule files into the new card store.
 
-   The old format (see `bb/src/succession/yaml.clj`) had per-rule YAML
+   The old format (see `src/succession/yaml.clj`) had per-rule YAML
    frontmatter like:
 
      ---
@@ -109,7 +109,7 @@
     (cond
       (str/blank? rules-dir)
       (do (binding [*out* *err*]
-            (println "usage: bb -m succession.core import <old-rules-dir>"))
+            (println "usage: succession import <old-rules-dir>"))
           (System/exit 2))
 
       (not (.exists (io/file rules-dir)))

@@ -1,5 +1,5 @@
 (ns succession.cli.identity-diff
-  "`bb -m succession.core identity-diff <ts1> <ts2>` — compare
+  "`succession identity-diff <ts1> <ts2>` — compare
    two archived identity snapshots.
 
    Every PreCompact run writes `.succession/archive/{ts}/promoted/...`
@@ -119,13 +119,47 @@
 
 (defn run
   [project-root args]
-  (let [[ts1 ts2] args]
-    (if (or (str/blank? ts1) (str/blank? ts2))
-      (do (binding [*out* *err*]
-            (println "usage: bb -m succession.core identity-diff <ts1> <ts2|current>"))
-          (System/exit 2))
-      (let [before (load-snapshot-cards project-root ts1)
-            after  (load-snapshot-cards project-root ts2)
-            result (diff-cards before after)]
-        (print-report! result {:ts1 ts1 :ts2 ts2})
-        (System/exit 0)))))
+  (let [[flag] args]
+    (cond
+      (= flag "--list")
+      (let [archive-base (io/file project-root ".succession" "archive")]
+        (if-not (.exists archive-base)
+          (println "(no archives found)")
+          (doseq [ts (->> (.listFiles archive-base)
+                          (filter #(.isDirectory %))
+                          (map #(.getName %))
+                          sort)]
+            (println ts)))
+        (System/exit 0))
+
+      (= flag "--last")
+      (let [archive-base (io/file project-root ".succession" "archive")
+            dirs         (when (.exists archive-base)
+                           (->> (.listFiles archive-base)
+                                (filter #(.isDirectory %))
+                                (map #(.getName %))
+                                sort
+                                (take-last 2)))]
+        (if (< (count dirs) 2)
+          (do (binding [*out* *err*]
+                (println "identity-diff --last: fewer than 2 archive snapshots found"))
+              (System/exit 2))
+          (let [ts1    (first dirs)
+                ts2    (second dirs)
+                before (load-snapshot-cards project-root ts1)
+                after  (load-snapshot-cards project-root ts2)
+                result (diff-cards before after)]
+            (print-report! result {:ts1 ts1 :ts2 ts2})
+            (System/exit 0))))
+
+      :else
+      (let [[ts1 ts2] args]
+        (if (or (str/blank? ts1) (str/blank? ts2))
+          (do (binding [*out* *err*]
+                (println "usage: succession identity-diff <ts1> <ts2|current>"))
+              (System/exit 2))
+          (let [before (load-snapshot-cards project-root ts1)
+                after  (load-snapshot-cards project-root ts2)
+                result (diff-cards before after)]
+            (print-report! result {:ts1 ts1 :ts2 ts2})
+            (System/exit 0)))))))

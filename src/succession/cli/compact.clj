@@ -1,5 +1,5 @@
 (ns succession.cli.compact
-  "`bb -m succession.core compact` — manual promotion flush.
+  "`succession compact` — manual promotion flush.
 
    Runs the full pre-compact promotion pipeline on demand, without
    waiting for the context window to fill. Semantically identical to

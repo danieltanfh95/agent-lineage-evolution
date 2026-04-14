@@ -1,5 +1,5 @@
 (ns succession.cli.queue
-  "`bb -m succession.core queue <op>` — inspect and recover the async
+  "`succession queue <op>` — inspect and recover the async
    job queue.
 
    The async judge lane writes files under
@@ -73,7 +73,7 @@
               pending inflight dead (worker-lock-state project-root)))
     (when (pos? dead)
       (println)
-      (println "Run `bb succession queue list-dead` to inspect failed jobs."))
+      (println "Run `succession queue list-dead` to inspect failed jobs."))
     (when (.exists log-file)
       (let [lines   (str/split-lines (slurp log-path))
             last-20 (take-last 20 lines)]
@@ -132,7 +132,7 @@
   (let [target (first args)]
     (cond
       (str/blank? target)
-      (err! "usage: bb succession queue requeue <filename> | --all")
+      (err! "usage: succession queue requeue <filename> | --all")
 
       (= target "--all")
       (let [n (store-jobs/requeue-all! project-root)]
@@ -171,7 +171,7 @@
         older (when (= (first args) "--older-than")
                 (parse-duration (second args)))]
     (if (and (= (first args) "--older-than") (nil? older))
-      (err! "usage: bb succession queue clear-dead [--older-than <N(s|m|h|d)>]")
+      (err! "usage: succession queue clear-dead [--older-than <N(s|m|h|d)>]")
       (let [n (store-jobs/clear-dead! project-root older)]
         (println (format "deleted %d dead-lettered pair(s)" n))
         0))))
@@ -188,5 +188,5 @@
       "list-dead"  (run-list-dead project-root)
       "requeue"    (run-requeue project-root rest-args)
       "clear-dead" (run-clear-dead project-root rest-args)
-      (err! (str "usage: bb succession queue <status|list-dead|requeue|clear-dead>"
+      (err! (str "usage: succession queue <status|list-dead|requeue|clear-dead>"
                  (when op (str "\n  unknown subcommand: " op)))))))

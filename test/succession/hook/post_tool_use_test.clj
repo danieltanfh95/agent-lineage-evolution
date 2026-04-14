@@ -71,7 +71,7 @@
           ranked [{:card (h/a-card {:id "p1" :tier :principle})
                    :weight 50.0 :recency-fraction 1.0}]]
       (is (str/includes? (ptu/build-reminder ranked 4 config) "consult"))
-      (is (not (str/includes? (ptu/build-reminder ranked 5 config) "bb succession consult"))))))
+      (is (not (str/includes? (ptu/build-reminder ranked 5 config) "succession consult"))))))
 
 ;; ------------------------------------------------------------------
 ;; Refresh state roundtrip

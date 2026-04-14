@@ -101,7 +101,7 @@
 
    ;; --- Async drain worker ---
    ;; The post-tool-use and stop hooks enqueue LLM work into
-   ;; `staging/jobs/`; a single detached `bb succession worker drain`
+   ;; `staging/jobs/`; a single detached `succession worker drain`
    ;; process pulls jobs off the queue, runs the handlers, and self-
    ;; exits once idle. See async-lane plan §Worker lifecycle.
    :worker/async

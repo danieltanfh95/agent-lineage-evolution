@@ -1,11 +1,11 @@
 (ns succession.cli.install
-  "`bb -m succession.core install` — one-shot atomic setup.
+  "`succession install` — one-shot atomic setup.
 
    Writes every file Succession needs to run in a project:
 
      1. `.claude/skills/succession-consult/SKILL.md` — agent-facing
         discovery path. Tells the agent when to reach for
-        `bb succession consult ...` and what the response means.
+        `succession consult ...` and what the response means.
      2. `.succession/config.edn` — starter config via `config init`.
      3. `.succession/identity/promoted/{principle,rule,ethic}/` —
         empty promoted tier dirs so pre_compact has somewhere to rewrite.
@@ -13,7 +13,7 @@
         `.succession/archive/`, `.succession/contradictions/` — the
         store's live directories.
      5. `.claude/settings.local.json` hook entries for all six events,
-        pointing at `bb -m succession.core hook <event>`.
+        using `succession hook <event>` (requires bbin-installed binary).
 
    Idempotent: every step refuses to overwrite an existing file/entry.
    Running `install` on a project that already has some steps applied
@@ -46,7 +46,7 @@ Do not use when: the action is clearly routine, or you've consulted
 in the last few turns about the same thing (it's logged — check your
 recent bash output).
 
-How: run `bb -m succession.core consult \"<one-sentence situation>\"`
+How: run `succession consult \"<one-sentence situation>\"`
 with flags as needed. Read the response carefully. The response
 organizes your identity into principle (inviolable), rule (default
 behavior), and ethic (aspirational), and flags contradictions.
@@ -76,33 +76,23 @@ performance metric.
    ["Stop"              "stop"]
    ["PreCompact"        "pre-compact"]])
 
-(defn- bb-command
-  "Hook command template. `src-path` is a string to place after `bb -cp`;
-   callers pass either `$CLAUDE_PROJECT_DIR/bb/src` (most common — bb.edn
-   lives under a `bb/` subdirectory) or `$CLAUDE_PROJECT_DIR/src` (bb.edn
-   at project root)."
-  [src-path sub]
-  (str "bb -cp \"" src-path "\" -m succession.core hook " sub))
+(defn- hook-command [sub]
+  (str "succession hook " sub))
 
-(defn- statusline-command
-  "Statusline command template. Same `src-path` convention as `bb-command`."
-  [src-path]
-  (str "bb -cp \"" src-path "\" -m succession.core statusline"))
+(defn- statusline-command []
+  "succession statusline")
 
 (defn build-hook-entries
   "Pure: produce the hooks section of a settings.json for these six
    events. Shape matches Claude Code's schema: each event name maps to
-   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`.
-
-   `src-path` is the classpath root (relative to `$CLAUDE_PROJECT_DIR`)
-   baked into each hook command — e.g. `$CLAUDE_PROJECT_DIR/bb/src`."
-  [src-path]
+   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`."
+  []
   (into {}
         (map (fn [[event-name sub]]
                [event-name
                 [{:matcher ""
                   :hooks   [{:type    "command"
-                             :command (bb-command src-path sub)}]}]]))
+                             :command (hook-command sub)}]}]]))
         hook-events))
 
 ;; ------------------------------------------------------------------
@@ -201,29 +191,14 @@ performance metric.
               (or existing {})
               new-entries))))
 
-(defn- detect-src-path
-  "Guess where the Succession source tree lives relative to
-   `$CLAUDE_PROJECT_DIR`. Prefers `bb/src` (this project's layout) and
-   falls back to `src` for single-tree projects."
-  [project-root]
-  (cond
-    (.exists (io/file project-root "bb" "src" "succession" "core.clj"))
-    "$CLAUDE_PROJECT_DIR/bb/src"
-
-    (.exists (io/file project-root "src" "succession" "core.clj"))
-    "$CLAUDE_PROJECT_DIR/src"
-
-    :else
-    "$CLAUDE_PROJECT_DIR/bb/src"))
-
 (defn- merge-statusline
   "Pure: add the `statusLine` entry to a settings map if not already
    present. Does not overwrite an existing statusLine config."
-  [settings src-path]
+  [settings]
   (if (:statusLine settings)
     settings
     (assoc settings :statusLine {:type    "command"
-                                 :command (statusline-command src-path)})))
+                                 :command (statusline-command)})))
 
 (defn install-settings!
   "Update `.claude/settings.local.json` to wire all six Succession hooks
@@ -231,18 +206,19 @@ performance metric.
    existing non-Succession hooks and any other top-level keys."
   [project-root]
   (let [path     (.getPath (io/file project-root ".claude" "settings.local.json"))
-        src-path (detect-src-path project-root)
         existing (or (read-json-if-exists path) {})
         already? (some (fn [[_ entries]]
                          (some (fn [entry]
                                  (some (fn [h]
-                                         (str/includes? (:command h "")
-                                                        "succession.core hook"))
+                                         (or (str/includes? (:command h "")
+                                                            "succession hook")
+                                             (str/includes? (:command h "")
+                                                            "succession.core hook")))
                                        (:hooks entry)))
                                entries))
                        (:hooks existing))
-        merged   (-> (merge-hook-entries existing (build-hook-entries src-path))
-                     (merge-statusline src-path))]
+        merged   (-> (merge-hook-entries existing (build-hook-entries))
+                     (merge-statusline))]
     (if already?
       {:step :settings :status :skipped :path path :reason "succession hooks already wired"}
       (do (io/make-parents (io/file path))
@@ -276,4 +252,11 @@ performance metric.
     (print-report! results)
     (println)
     (println (if ok? "install complete." "install finished with errors."))
+    (when ok?
+      (println)
+      (println "Next steps:")
+      (println "  1. Open a Claude Code session — hooks fire automatically, no manual steps.")
+      (println "  2. Run 'succession show' to see your identity cards accumulate.")
+      (println "  3. Run 'succession queue status' to check the async judge queue.")
+      (println "  4. Run 'succession config validate' to verify your config."))
     (System/exit (if ok? 0 1))))

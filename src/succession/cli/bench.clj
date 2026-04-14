@@ -1,5 +1,5 @@
 (ns succession.cli.bench
-  "`bb succession bench` — regression/cost/latency testing across LLM models.
+  "`succession bench` — regression/cost/latency testing across LLM models.
 
    Runs a fixed set of hand-labeled fixture cases through each model,
    scores the results against expected verdicts, and prints a comparative
@@ -310,7 +310,7 @@
           "--timeout"    (recur (next rest) (assoc opts :timeout (parse-long (first rest))))
           "--output-dir" (recur (next rest) (assoc opts :output-dir (first rest)))
           ("--help" "-h")
-          (do (println "Usage: bb succession bench [options]")
+          (do (println "Usage: succession bench [options]")
               (println "  --models m1,m2,...   Comma-separated model IDs (default: curated 6)")
               (println "  --models all         Full 13-model sweep")
               (println "  --runs N             Runs per case per model (default: 1)")
@@ -321,7 +321,7 @@
           (recur rest opts))))))
 
 (defn run
-  "Entry point for `bb succession bench`."
+  "Entry point for `succession bench`."
   [project-root args]
   (let [opts    (parse-args args)
         models  (:models opts)

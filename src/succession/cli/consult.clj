@@ -1,5 +1,5 @@
 (ns succession.cli.consult
-  "`bb succession consult \"<situation>\"` — agent-invoked identity
+  "`succession consult \"<situation>\"` — agent-invoked identity
    consultation.
 
    This is NOT a hook. The agent runs this via Bash when it wants a
@@ -31,6 +31,20 @@
 ;; Arg parsing
 ;; ------------------------------------------------------------------
 
+(def ^:private usage-text
+  "Usage: succession consult [options] <situation>
+
+Options:
+  --intent <text>          What the agent was trying to accomplish
+  --tool-name <name>       Tool being called (for hook context)
+  --tool-input <json>      Tool input JSON (for hook context)
+  --recent-context <text>  Recent conversation snippet
+  --category <kw>          Filter to a single card category
+  --tier <kw>              Filter to a single tier (core|active|dormant)
+  --exclude <c1,c2,...>    Comma-separated categories to exclude
+  --session <path>         Path to a JSONL session transcript
+  --dry-run                Print the prompt without calling the LLM")
+
 (defn parse-args
   "Parse the CLI flag list into an opts map. The positional argument
    is the situation text."
@@ -51,7 +65,7 @@
                                                        (set (str/split (first rest) #","))))
           "--session"        (recur (next rest) (assoc opts :session (first rest)))
           "--dry-run"        (recur rest        (assoc opts :dry-run? true))
-          ("--help" "-h")    (do (println (:doc (meta #'parse-args)))
+          ("--help" "-h")    (do (println usage-text)
                                  (System/exit 0))
           ;; positional
           (recur rest (update opts :situation-parts (fnil conj []) a)))))))
@@ -167,7 +181,7 @@
      :source  :consult
      :card-id (:card/id card)
      :kind    :consulted
-     :context "agent consulted via bb succession consult"}))
+     :context "agent consulted via succession consult"}))
 
 (defn- log-consulted-cards!
   [project-root session at candidates]

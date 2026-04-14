@@ -1,5 +1,5 @@
 (ns succession.cli.staging
-  "`bb -m succession.core staging <op>` — inspect and discard staged sessions.
+  "`succession staging <op>` — inspect and discard staged sessions.
 
    Subcommands:
 
@@ -8,7 +8,7 @@
      prune --keep-last N             — keep N most recent, delete the rest
      prune --older-than <N(s|m|h|d)> — delete sessions older than the threshold
 
-   Unlike `bb succession compact`, prune does NOT run the promotion
+   Unlike `succession compact`, prune does NOT run the promotion
    pipeline — deltas are discarded without being applied to canonical
    identity. Use this when old sessions contain stale or invalid deltas
    you explicitly do not want promoted."
@@ -72,7 +72,7 @@
                      (try (Long/parseLong n-str)
                           (catch NumberFormatException _ nil)))]
         (if (nil? n)
-          (err! "usage: bb succession staging prune --keep-last <N>")
+          (err! "usage: succession staging prune --keep-last <N>")
           (let [deleted (store-staging/prune-sessions! project-root {:keep-last n})]
             (println (format "deleted %d staging session(s) (kept %d most recent)" deleted n))
             0)))
@@ -80,7 +80,7 @@
       (= (first args) "--older-than")
       (let [dur (parse-duration (second args))]
         (if (nil? dur)
-          (err! "usage: bb succession staging prune --older-than <N(s|m|h|d)>")
+          (err! "usage: succession staging prune --older-than <N(s|m|h|d)>")
           (let [deleted (store-staging/prune-sessions! project-root {:older-than-ms dur})]
             (println (format "deleted %d staging session(s) older than %s"
                              deleted (second args)))
@@ -92,7 +92,7 @@
         0)
 
       :else
-      (err! "usage: bb succession staging prune [--keep-last N | --older-than <N(s|m|h|d)>]"))))
+      (err! "usage: succession staging prune [--keep-last N | --older-than <N(s|m|h|d)>]"))))
 
 ;; ------------------------------------------------------------------
 ;; Dispatch
@@ -104,5 +104,5 @@
     (case op
       "status" (run-status project-root)
       "prune"  (run-prune project-root rest-args)
-      (err! (str "usage: bb succession staging <status|prune>"
+      (err! (str "usage: succession staging <status|prune>"
                  (when op (str "\n  unknown subcommand: " op)))))))

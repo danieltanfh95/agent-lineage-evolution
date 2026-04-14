@@ -1,5 +1,5 @@
 (ns succession.cli.statusline
-  "`bb -m succession.core statusline` — Claude Code statusline provider.
+  "`succession statusline` — Claude Code statusline provider.
 
    Reads `{\"session_id\":\"...\"}` from stdin, counts observations and
    queue state, prints a single formatted line to stdout:

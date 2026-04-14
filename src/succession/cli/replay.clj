@@ -1,5 +1,5 @@
 (ns succession.cli.replay
-  "`bb -m succession.core replay <transcript>` — dry-run
+  "`succession replay <transcript>` — dry-run
    harness that walks a recorded Claude Code session JSONL through
    the identity cycle against a sandbox directory.
 
@@ -208,7 +208,7 @@
         transcript   (first args)]
     (if (str/blank? transcript)
       (do (binding [*out* *err*]
-            (println "usage: bb -m succession.core replay <transcript.jsonl>"))
+            (println "usage: succession replay <transcript.jsonl>"))
           (System/exit 1))
       (try (run project-root transcript)
            (System/exit 0)

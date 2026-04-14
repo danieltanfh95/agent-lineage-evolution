@@ -1,5 +1,5 @@
 (ns succession.cli.show
-  "`bb -m succession.core show` — print the currently promoted identity
+  "`succession show` — print the currently promoted identity
    cards as a markdown behavior tree.
 
    Motivation: until now the only way to see the active rules was to

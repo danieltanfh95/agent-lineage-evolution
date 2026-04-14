@@ -303,7 +303,7 @@
 ;;
 ;; The drain worker writes failed jobs to `dead/<filename>.json`
 ;; alongside `dead/<stem>.error.edn`. The CLI surfaces under
-;; `bb succession queue` need to enumerate, requeue, and prune those
+;; `succession queue` need to enumerate, requeue, and prune those
 ;; pairs without dipping into filesystem internals.
 ;; ------------------------------------------------------------------
 
@@ -395,7 +395,7 @@
 
 (defn requeue-all!
   "Requeue every dead-lettered job. Returns the count moved. Used by
-   `bb succession queue requeue --all`."
+   `succession queue requeue --all`."
   [project-root]
   (reduce (fn [n ^java.io.File f]
             (if (requeue! project-root (.getName f))

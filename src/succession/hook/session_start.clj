@@ -29,7 +29,7 @@
 
 (def ^:private consult-skill-footer
   (str "---\n\n"
-       "You can consult your identity via `bb succession consult \"<situation>\"` "
+       "You can consult your identity via `succession consult \"<situation>\"` "
        "when uncertain or sensing contradiction. Consultation is a reflective "
        "second opinion against your own cards — not a performance metric. "
        "See the `succession-consult` skill for details."))
