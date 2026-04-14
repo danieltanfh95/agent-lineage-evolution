@@ -1,7 +1,8 @@
 .DS_Store
 .soul/log/*.jsonl
 .soul/staging/
-.claude/settings.local.json
+.claude/
+.replsh/
 experiments/
 __pycache__/
 *.pyc
