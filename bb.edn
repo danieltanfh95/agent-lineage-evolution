@@ -1,5 +1,7 @@
 {:paths ["src" "test" "resources"]
  :min-bb-version "1.0.0"
+ :license {:name "MIT"
+            :url "https://opensource.org/licenses/MIT"}
  :main succession.core
  :bbin/bin {succession {:main-opts ["-m" "succession.core"]}}
 
