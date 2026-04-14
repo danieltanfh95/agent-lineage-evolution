@@ -61,17 +61,26 @@
 ;; ------------------------------------------------------------------
 
 (defn run-status
-  "`queue status` — one-line counters + worker-lock state."
+  "`queue status` — one-line counters + worker-lock state + recent log."
   [project-root]
   (let [pending  (store-jobs/count-pending project-root)
         inflight (store-jobs/count-inflight project-root)
-        dead     (store-jobs/count-dead project-root)]
+        dead     (store-jobs/count-dead project-root)
+        log-path (paths/jobs-worker-log project-root)
+        log-file (io/file log-path)]
     (println
       (format "succession queue: %d pending · %d inflight · %d dead · %s"
               pending inflight dead (worker-lock-state project-root)))
     (when (pos? dead)
       (println)
       (println "Run `bb succession queue list-dead` to inspect failed jobs."))
+    (when (.exists log-file)
+      (let [lines   (str/split-lines (slurp log-path))
+            last-20 (take-last 20 lines)]
+        (println)
+        (println "recent worker log:")
+        (doseq [line last-20]
+          (println (str "  " line)))))
     0))
 
 ;; ------------------------------------------------------------------

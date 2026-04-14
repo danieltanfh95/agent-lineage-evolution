@@ -72,16 +72,17 @@
 
    ;; --- LLM models ---
    :reconcile/llm
-   {:model                 "claude-sonnet-4-6"
+   {:model                 "deepseek/deepseek-chat"
     :auto-apply-confidence 0.8
-    :timeout-seconds       60}
+    :timeout-seconds       90
+    :max-batch-size        10}
    :judge/llm
    {:model           "deepseek/deepseek-chat"
     :fallback-model  "claude-sonnet-4-6"
     :timeout-seconds 30
     :context-window  {:n 3 :max-chars 600}}
    :consult/llm
-   {:model           "claude-sonnet-4-6"
+   {:model           "deepseek/deepseek-chat"
     :timeout-seconds 60}
 
    ;; --- Correction detection (UserPromptSubmit) ---

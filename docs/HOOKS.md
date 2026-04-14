@@ -25,7 +25,7 @@ All six handlers follow the same skeleton in `hook/common.clj`:
 (defn run []
   (try
     (let [input        (common/read-input)
-          project-root (common/project-root input)   ; from :cwd
+          project-root (common/project-root input)   ; walk-up from :cwd
           cfg          (common/load-config input)]
       …)
     (catch Throwable t
@@ -33,6 +33,13 @@ All six handlers follow the same skeleton in `hook/common.clj`:
         (println "succession <hook> error:" (.getMessage t)))))
   nil)
 ```
+
+`common/project-root` walks **up** the directory tree from `:cwd` until it
+finds a directory containing `.succession/config.edn` or `.git`. This
+prevents split queues when Claude Code's session cwd is a subdirectory
+(e.g. `bb/`) — without the walk-up, hooks fired from `bb/` would create a
+second `.succession/` store under `bb/.succession/` that the user never
+sees.
 
 No uncaught exception is ever propagated to the Claude Code harness.
 
@@ -235,7 +242,8 @@ Otherwise empty.
   containing `{:job/type "judge" :job/payload {:tool-name … :tool-input …}}`.
 - A detached `bb succession worker drain` process may be spawned if
   `.succession/staging/jobs/.worker.lock` is absent or stale. Worker
-  stdout/stderr go to `/tmp/.succession-drain-worker.log`.
+  stdout/stderr go to `.succession/staging/jobs/.worker.log` (project-scoped;
+  also readable via `bb succession queue status`).
 
 **Refresh gate (Finding 1 — do not re-derive).**
 
@@ -429,6 +437,7 @@ per-call child — they enqueue a job file and ensure a worker is alive.
 ├── dead/
 │   ├── <ts>-<uuid>.json     ; handler threw
 │   └── <ts>-<uuid>.error.edn
+├── .worker.log              ; drain worker event log (tail -f friendly)
 └── .worker.lock             ; at-most-one worker
 ```
 
@@ -455,8 +464,8 @@ not ending in `.json`.
 ```clojure
 (process/process
   {:dir      project-root
-   :out      "/tmp/.succession-drain-worker.log"
-   :err      "/tmp/.succession-drain-worker.log"
+   :out      (paths/jobs-worker-log project-root)   ; .succession/staging/jobs/.worker.log
+   :err      (paths/jobs-worker-log project-root)
    :shutdown nil}
   "bb" "-cp" (src-root) "-m" "succession.core" "worker" "drain")
 ```
@@ -490,6 +499,11 @@ disk, so the next hook invocation will retry the spawn.
      `.worker.lock` body and touch mtime.
    - **Idle watcher** — when `domain/queue/idle?` holds (pending and
      inflight both zero, grace window elapsed), close `jobs-chan`.
+     The idle watcher does NOT sweep inflight files; that sweep runs
+     only at step 2 (startup), targeting files from a previous crashed
+     worker. Running the sweep on every tick caused an infinite claim
+     loop when `ATOMIC_MOVE` preserved the enqueue mtime on the
+     inflight file — the sweep would reclaim a still-running job.
 4. Main thread drains `results-chan`. For each result: on `:ok`
    `jobs/complete!` (delete inflight), on `:error`
    `jobs/dead-letter!` (move inflight to `dead/<name>.json` and write
@@ -500,9 +514,13 @@ disk, so the next hook invocation will retry the spawn.
 
 - **At-most-one worker.** `Files/createFile` on `.worker.lock` is
   atomic; losers exit 0 immediately.
-- **One attempt per enqueue.** Failures land in `dead/` with a sibling
-  `.error.edn` snapshotting the exception; operators re-queue by
-  moving the `.json` back to `jobs/`. Bounded retries are deferred.
+- **Circuit-broken retries.** Each claim increments `:job/attempts` in
+  the inflight file. If `attempts ≥ max-attempts` (default 10) OR
+  claims in the last hour `≥ max-attempts-per-hour` (default 5), the
+  scanner dead-letters the job immediately instead of handing it to
+  the pipeline. Handler failures (non-loop) land in `dead/` with a
+  sibling `.error.edn`; operators re-queue via `bb succession queue
+  requeue <filename>`.
 - **Crash recovery.** A kill-9 mid-job leaves `.inflight/<name>.json`
   behind. The next worker's startup sweep moves it back to `jobs/`
   after `:stale-lock-seconds`.
@@ -518,12 +536,15 @@ disk, so the next hook invocation will retry the spawn.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `:idle-timeout-seconds` | 10 | Grace window after last activity before scanner closes the input chan |
+| `:idle-timeout-seconds` | 30 | Grace window after last activity before scanner closes the input chan |
 | `:parallelism` | 2 | Number of `pipeline-blocking` lanes (caps concurrent LLM calls) |
 | `:stale-lock-seconds` | 60 | mtime age past which the lock is considered abandoned |
 | `:heartbeat-seconds` | 20 | How often the worker rewrites the lock body |
 | `:scan-interval-ms` | 500 | How often the scanner walks `jobs/` |
 | `:dead-letter-enabled` | true | Whether to keep failed jobs under `dead/` (else drop) |
+| `:inflight-sweep-seconds` | 600 | How long a job may sit in `.inflight/` before startup sweep reclaims it (must exceed max LLM call duration) |
+| `:max-attempts` | 10 | Lifetime claim limit per job; exceeded → dead-letter (circuit breaker) |
+| `:max-attempts-per-hour` | 5 | Rolling 60-min claim limit; exceeded → dead-letter (circuit breaker) |
 
 **`asyncRewake` is still deferred.** Verdicts produced by the drain
 worker after the parent returned cannot re-enter the current turn.

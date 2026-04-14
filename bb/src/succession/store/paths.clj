@@ -140,6 +140,14 @@
   [project-root]
   (join (jobs-dir project-root) ".worker.lock"))
 
+(defn jobs-worker-log
+  "Per-project worker log file. Written by the drain worker (one line
+   per event, tail-f friendly). Consumed by `queue status` and operators
+   diagnosing stalls. Replaces the global /tmp/.succession-drain-worker.log
+   so multiple projects never interleave into the same file."
+  [project-root]
+  (join (jobs-dir project-root) ".worker.log"))
+
 (defn ensure-dir!
   "Create a directory (including parents) if it does not exist. Returns
    the path. Idempotent; safe to call on a fresh or existing tree."

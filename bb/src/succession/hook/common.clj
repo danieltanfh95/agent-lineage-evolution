@@ -55,12 +55,28 @@
           :additionalContext text}}))))
 
 (defn project-root
-  "Derive the project root for this hook invocation. Prefers the `:cwd`
-   field from the hook payload so one harness instance can drive many
-   projects without colliding. Falls back to `user.dir` for local
-   testing."
+  "Derive the project root for this hook invocation. Walks up from `:cwd`
+   to find the nearest directory containing `.succession/config.edn` or
+   `.git` — prevents split queues when cwd is a subdirectory (e.g. bb/).
+   Falls back to raw `:cwd`, then `user.dir` for local testing.
+
+   Logs the resolved root to stderr so split-queue bugs are immediately
+   visible in Claude Code's hook stderr capture."
   [input]
-  (or (:cwd input) (System/getProperty "user.dir") "."))
+  (let [cwd  (or (:cwd input) (System/getProperty "user.dir") ".")
+        root (loop [d (io/file cwd)]
+               (cond
+                 (nil? d)
+                 cwd
+                 (.exists (io/file d ".succession" "config.edn"))
+                 (.getPath d)
+                 (.exists (io/file d ".git"))
+                 (.getPath d)
+                 :else
+                 (recur (.getParentFile d))))]
+    (binding [*out* *err*]
+      (println (str "[succession] project-root: " root " (cwd: " cwd ")")))
+    root))
 
 (defn load-config
   "Load the effective config for the hook. Cached per-invocation by the
@@ -151,8 +167,8 @@
       (try
         (process/process
           {:dir      project-root
-           :out      "/tmp/.succession-drain-worker.log"
-           :err      "/tmp/.succession-drain-worker.log"
+           :out      (paths/jobs-worker-log project-root)
+           :err      (paths/jobs-worker-log project-root)
            :shutdown nil}
           "bb" "-cp" (src-root project-root) "-m" "succession.core" "worker" "drain")
         (catch Throwable _ nil)))))

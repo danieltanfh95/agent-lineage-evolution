@@ -170,6 +170,149 @@
     category-3-principle-schema))
 
 ;; ------------------------------------------------------------------
+;; Batch prompt construction
+;; ------------------------------------------------------------------
+
+(declare parse-generic)
+
+(def ^:private batch-category-schemas
+  "Compact category-specific field reference shown once at the end of
+   the batch prompt. Generic illustrative examples — not test fixtures."
+  (str
+    "Category-specific fields by category value:\n\n"
+    "  self-contradictory:   kind=rewrite, proposed_text=string\n"
+    "  contextual-override:  kind=scope-qualify|intentional, proposed_text=string-or-null\n"
+    "  semantic-opposition:  kind=scope-partition|tier-wins|rewrite-loser,\n"
+    "                        scope_a=string-or-null, scope_b=string-or-null,\n"
+    "                        winner_card_id=string, loser_card_id=string,\n"
+    "                        proposed_text=string-or-null\n"
+    "  principle-violated:   kind=rewrite|demote|escalate,\n"
+    "                        proposed_text=string-or-null,\n"
+    "                        proposed_tier=rule|ethic|null"))
+
+(defn- render-contradiction-block
+  "Render one contradiction as a numbered prompt block."
+  [idx c cards-by-id]
+  (let [cat       (:contradiction/category c)
+        cid       (:contradiction/id c)
+        between   (:contradiction/between c)
+        card-id-a (get-in between [0 :card/id])
+        card-id-b (get-in between [1 :card/id])
+        card-a    (when card-id-a (get cards-by-id card-id-a))
+        card-b    (when card-id-b (get cards-by-id card-id-b))]
+    (str
+      "--- Contradiction " idx " ---\n"
+      "contradiction_id: " cid "\n"
+      "category: " (name cat) "\n\n"
+      (case cat
+        :self-contradictory
+        (str "CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n")
+
+        :contextual-override
+        (str "CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n"
+             "OVERRIDE PATTERN: "
+             (or (get-in c [:contradiction/resolution :description]) "") "\n")
+
+        :semantic-opposition
+        (str "CARD A:\n" (if card-a (render-card card-a) "(card A not found)") "\n\n"
+             "CARD B:\n" (if card-b (render-card card-b) "(card B not found)") "\n")
+
+        :principle-violated
+        (str "PRINCIPLE CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n"
+             "VIOLATING OBSERVATION context: "
+             (or (get-in c [:contradiction/resolution :description]) "") "\n")
+
+        ;; fallback for any unrecognised category
+        (str "details: " (pr-str (select-keys c [:contradiction/category :contradiction/between])) "\n")))))
+
+(defn- build-batch-prompt
+  "Build one prompt covering all contradictions in `contradictions`.
+   The model must return a JSON array — one object per contradiction —
+   in any order."
+  [contradictions cards-by-id]
+  (str
+    "You are the reconcile voice of an agent's identity. The following "
+    "open contradictions each need a resolution. Analyse each one and "
+    "return a JSON array — one object per contradiction — in any order.\n\n"
+    (str/join "\n" (map-indexed
+                     (fn [i c] (render-contradiction-block (inc i) c cards-by-id))
+                     contradictions))
+    "\n" batch-category-schemas "\n\n"
+    "Each JSON object in the array must include:\n"
+    "  - \"contradiction_id\": exact id from the block header\n"
+    "  - \"category\": the category string from the block header\n"
+    "  - \"kind\": one of the valid kinds for that category (see above)\n"
+    "  - \"rationale\": one or two sentences explaining the resolution\n"
+    "  - \"confidence\": 0.0–1.0\n"
+    "  - plus any category-specific fields listed above\n\n"
+    "Example response shape (generic — illustrative only):\n"
+    "[\n"
+    "  {\"contradiction_id\": \"c-aaa\", \"category\": \"self-contradictory\",\n"
+    "   \"kind\": \"rewrite\", \"rationale\": \"...\", \"confidence\": 0.85,\n"
+    "   \"proposed_text\": \"revised card text\"},\n"
+    "  {\"contradiction_id\": \"c-bbb\", \"category\": \"semantic-opposition\",\n"
+    "   \"kind\": \"scope-partition\", \"rationale\": \"...\", \"confidence\": 0.90,\n"
+    "   \"scope_a\": \"when X\", \"scope_b\": \"when Y\",\n"
+    "   \"winner_card_id\": \"card-x\", \"loser_card_id\": \"card-y\"}\n"
+    "]\n"
+    "Return ONLY the JSON array — no prose, no markdown fences."))
+
+(defn- parse-batch-response
+  "Parse the LLM batch response `text` into a vec of resolution records,
+   one per entry in `contradictions`. Any input contradiction whose
+   `contradiction_id` is absent from the LLM response gets
+   `{:ok? false :resolution nil}` so callers can skip it cleanly."
+  [text contradictions]
+  (let [parsed (claude/parse-json text)
+        arr    (cond
+                 (sequential? parsed) parsed
+                 (map? parsed)        [parsed]
+                 :else                [])
+        by-id  (into {}
+                     (keep (fn [obj]
+                             (when-let [cid (or (:contradiction_id obj)
+                                               (get obj "contradiction_id"))]
+                               [cid (parse-generic obj)]))
+                           arr))]
+    (mapv (fn [c]
+            (let [cid        (:contradiction/id c)
+                  resolution (get by-id cid)]
+              {:contradiction-id cid
+               :resolution       resolution
+               :ok?              (boolean resolution)}))
+          contradictions)))
+
+;; ------------------------------------------------------------------
+;; Batch public entry
+;; ------------------------------------------------------------------
+
+(defn resolve-open!
+  "Call the reconcile LLM once for all `contradictions`. Returns a vec
+   of `{:contradiction-id str :resolution map-or-nil :ok? bool}` — one
+   entry per input contradiction. Returns `[]` immediately if
+   `contradictions` is empty (no LLM call made).
+
+   `max-batch-size` from config caps the slice passed to the prompt to
+   keep token count bounded."
+  [contradictions cards-by-id config]
+  (if (empty? contradictions)
+    []
+    (let [cfg     (:reconcile/llm config)
+          model   (or (:model cfg) "deepseek/deepseek-chat")
+          timeout (or (:timeout-seconds cfg) 90)
+          prompt  (build-batch-prompt contradictions cards-by-id)
+          result  (transport/call prompt {:model-id     model
+                                          :timeout-secs  timeout
+                                          :output-toks   (* 320 (count contradictions))})]
+      (if (:ok? result)
+        (parse-batch-response (:text result) contradictions)
+        (mapv (fn [c]
+                {:contradiction-id (:contradiction/id c)
+                 :resolution       nil
+                 :ok?              false})
+              contradictions)))))
+
+;; ------------------------------------------------------------------
 ;; Response parsing
 ;; ------------------------------------------------------------------
 

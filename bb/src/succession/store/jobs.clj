@@ -178,9 +178,36 @@
         dst (str (paths/jobs-inflight-dir project-root) "/" filename)]
     (try
       (atomic-move! src dst)
+      ;; Touch mtime to NOW so `sweep-stale-inflight!` measures staleness
+      ;; from claim time, not the original enqueue time that ATOMIC_MOVE
+      ;; preserves. Without this, a long queue wait (> inflight-sweep-seconds
+      ;; from enqueue) causes the sweep to move the file back while the
+      ;; handler is still running, creating an infinite claim loop.
+      (.setLastModified (io/file dst) (System/currentTimeMillis))
       dst
       (catch NoSuchFileException _ nil)
-      (catch Throwable _ nil))))
+      (catch Throwable e (throw e)))))
+
+(defn record-claim!
+  "Read the inflight file at `inflight-path`, increment `:job/attempts`,
+   append the current ISO-8601 timestamp to `:job/claim-timestamps`, and
+   write back atomically. Returns the updated job map (keyword keys), or
+   nil if the file disappeared between claim and read.
+
+   Called immediately after a successful `claim!`. The data written here
+   is what the circuit-breaker in `scan-and-claim!` reads to decide
+   whether to dead-letter the job."
+  [inflight-path]
+  (try
+    (let [job     (json/parse-string (slurp inflight-path) true)
+          ts      (str (.truncatedTo (java.time.Instant/now)
+                                     java.time.temporal.ChronoUnit/SECONDS))
+          updated (-> job
+                      (update :job/attempts (fnil inc 0))
+                      (update :job/claim-timestamps (fnil conj []) ts))]
+      (spit inflight-path (json/generate-string updated))
+      updated)
+    (catch Throwable _ nil)))
 
 ;; ------------------------------------------------------------------
 ;; Completion

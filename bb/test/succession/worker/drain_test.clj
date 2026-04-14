@@ -6,8 +6,10 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [succession.llm.reconcile :as reconcile]
             [succession.llm.transport :as transport]
             [succession.store.cards :as store-cards]
+            [succession.store.contradictions :as store-contra]
             [succession.store.jobs :as jobs]
             [succession.store.paths :as paths]
             [succession.store.test-helpers :as h]
@@ -202,6 +204,113 @@
           (is (= 0 (jobs/count-inflight *root*)))
           (is (= 0 (jobs/count-dead *root*))
               "no job dead-lettered — the judge lane is healthy"))))))
+
+;; ------------------------------------------------------------------
+;; Structured worker log is written with expected events
+;; ------------------------------------------------------------------
+
+(deftest drain-writes-worker-log-test
+  (testing "drain worker writes a structured log file containing start/complete/exit"
+    (doseq [i [1 2]] (seed-job! *root* i))
+    (drain/run!
+      *root*
+      {:handle-fn       (fn [_] [{:kind :test-ok}])
+       :config-override test-worker-config})
+    (let [log-path (paths/jobs-worker-log *root*)
+          log-file (io/file log-path)]
+      (is (.exists log-file) "worker log file should be created by drain/run!")
+      (let [contents (slurp log-path)]
+        (is (str/includes? contents "worker/start")  "log must contain worker/start")
+        (is (str/includes? contents "job/complete")   "log must contain job/complete for each job")
+        (is (str/includes? contents "worker/exit")   "log must contain worker/exit")))))
+
+;; ------------------------------------------------------------------
+;; Circuit-breaker: job exceeding max-attempts is dead-lettered
+;; ------------------------------------------------------------------
+
+(def ^:private circuit-breaker-config
+  "Aggressive limits so the test trips the breaker on the second claim."
+  {:worker/async {:idle-timeout-seconds   1
+                  :parallelism            1
+                  :stale-lock-seconds     60
+                  :heartbeat-seconds      60
+                  :scan-interval-ms       50
+                  :inflight-sweep-seconds 600
+                  :max-attempts           1       ; trip after 1st claim
+                  :max-attempts-per-hour  99}})   ; hourly limit not under test here
+
+(deftest drain-circuit-breaker-lifetime-test
+  (testing "a job that has been claimed more than max-attempts times is dead-lettered"
+    (seed-job! *root* 1)
+    ;; Run once — job is claimed (attempts=1), which equals max-attempts=1,
+    ;; so it gets dead-lettered immediately without dispatching to the handler.
+    (let [handled (atom 0)
+          exit    (drain/run!
+                    *root*
+                    {:handle-fn       (fn [_] (swap! handled inc) [])
+                     :config-override circuit-breaker-config})]
+      (is (= 0 exit))
+      (is (= 0 @handled)        "handler must NOT be called — breaker trips before dispatch")
+      (is (= 0 (jobs/count-pending *root*)))
+      (is (= 1 (jobs/count-dead *root*)) "job must land in dead-letter")
+      (let [log-contents (slurp (paths/jobs-worker-log *root*))]
+        (is (str/includes? log-contents "job/circuit-break") "log must record the trip")
+        (is (str/includes? log-contents "lifetime-limit"))))))
+
+;; ------------------------------------------------------------------
+;; Batch reconcile — fast drain when no open contradictions
+;; ------------------------------------------------------------------
+
+(defn- seed-reconcile-job! [root idx]
+  (jobs/enqueue! root
+                 (jobs/make-job {:type         :llm-reconcile
+                                 :session      (str "sess-" idx)
+                                 :project-root root
+                                 :payload      {}}))
+  (Thread/sleep 3))
+
+(deftest drain-reconcile-batch-completes-when-no-open-contradictions
+  (testing "llm-reconcile jobs with no open contradictions complete in ~1s (no LLM call)"
+    (doseq [i [1 2 3]] (seed-reconcile-job! *root* i))
+    (let [exit (drain/run!
+                 *root*
+                 {:handle-fn       (fn [_] [])
+                  :config-override test-worker-config})]
+      (is (= 0 exit))
+      (is (= 0 (jobs/count-pending *root*)))
+      (is (= 0 (jobs/count-dead *root*))))))
+
+;; ------------------------------------------------------------------
+;; Batch reconcile — resolve-open! called exactly once per job
+;; ------------------------------------------------------------------
+
+(deftest drain-reconcile-batch-processes-all-in-one-call
+  (testing "handle-job! :llm-reconcile calls resolve-open! once for all contradictions"
+    (seed-reconcile-job! *root* 1)
+    (let [call-count (atom 0)
+          call-input (atom nil)]
+      (with-redefs [reconcile/resolve-open!
+                    (fn [contradictions _cards-by-id _config]
+                      (swap! call-count inc)
+                      (reset! call-input contradictions)
+                      [])
+                    store-contra/open-contradictions
+                    (fn [_root]
+                      [{:contradiction/id       "c-test-1"
+                        :contradiction/category :self-contradictory
+                        :contradiction/between  [{:card/id "card-1"}]
+                        :contradiction/resolved-at nil}
+                       {:contradiction/id       "c-test-2"
+                        :contradiction/category :contextual-override
+                        :contradiction/between  [{:card/id "card-1"}]
+                        :contradiction/resolved-at nil}])
+                    store-cards/read-promoted-snapshot
+                    (fn [_root] {:cards []})]
+        (drain/run! *root* {:config-override test-worker-config})
+        (is (= 1 @call-count)
+            "resolve-open! must be called exactly once, not once per contradiction")
+        (is (= 2 (count @call-input))
+            "all open contradictions are passed together in one batch")))))
 
 (deftest drain-dead-letter-always-has-trace-e2e-test
   (testing "defence-in-depth: ANY handler failure — from any layer,

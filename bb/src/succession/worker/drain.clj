@@ -37,6 +37,7 @@
    Reference: async-lane plan §Data flow end-to-end, §Why a pipeline
    not plain threads."
   (:require [clojure.core.async :as a]
+            [clojure.string :as str]
             [succession.config :as config]
             [succession.domain.queue :as queue]
             [succession.store.jobs :as store-jobs]
@@ -100,33 +101,52 @@
         now          (Date.)
         contra-ns    (requiring-resolve 'succession.store.contradictions/open-contradictions)
         mark-ns      (requiring-resolve 'succession.store.contradictions/mark-resolved!)
-        cat2-ns      (requiring-resolve 'succession.llm.reconcile/resolve-category-2)
-        cat3p-ns     (requiring-resolve 'succession.llm.reconcile/resolve-category-3-principle)
-        cat1-ns      (requiring-resolve 'succession.llm.reconcile/resolve-self-contradictory)
-        cat6-ns      (requiring-resolve 'succession.llm.reconcile/resolve-contextual-override)
+        resolve-ns   (requiring-resolve 'succession.llm.reconcile/resolve-open!)
         auto-ns      (requiring-resolve 'succession.llm.reconcile/auto-applicable?)
         cards-ns     (requiring-resolve 'succession.store.cards/read-promoted-snapshot)
         cards-by-id  (->> (:cards (cards-ns project-root))
                           (into {} (map (juxt :card/id identity))))
-        open         (contra-ns project-root)]
+        max-batch    (or (get-in config [:reconcile/llm :max-batch-size]) 10)
+        open         (vec (take max-batch (contra-ns project-root)))
+        results      (resolve-ns open cards-by-id config)]
     (vec
-      (for [c open
-            :let [cat    (:contradiction/category c)
-                  ctx    {:contradiction c
-                          :project-root  project-root
-                          :cards-by-id   cards-by-id}
-                  result (cond
-                           (= cat :semantic-opposition)  (when cat2-ns  (cat2-ns  ctx config))
-                           (= cat :principle-violated)   (when cat3p-ns (cat3p-ns ctx config))
-                           (= cat :self-contradictory)   (when cat1-ns  (cat1-ns  ctx config))
-                           (= cat :contextual-override)  (when cat6-ns  (cat6-ns  ctx config))
-                           :else nil)]
-            :when (and result (:ok? result) auto-ns
-                       (auto-ns (:resolution result) config))]
-        (do (mark-ns project-root (:contradiction/id c) :llm-reconcile now
-                     (:resolution result))
+      (for [{:keys [contradiction-id resolution ok?]} results
+            :when (and ok? auto-ns (auto-ns resolution config))]
+        (do (mark-ns project-root contradiction-id :llm-reconcile now resolution)
             {:kind :contradiction-resolved
-             :id   (:contradiction/id c)})))))
+             :id   contradiction-id})))))
+
+;; ------------------------------------------------------------------
+;; Structured logging
+;; ------------------------------------------------------------------
+
+(defn- ts-now
+  "Current time as ISO-8601 UTC string, truncated to seconds."
+  []
+  (str/replace (str (java.time.Instant/now)) #"\.\d+Z$" "Z"))
+
+
+(defn- kw->str
+  "Convert a keyword to its full string form, including namespace if present.
+   :worker/start → \"worker/start\", :pending → \"pending\"."
+  [k]
+  (if (namespace k)
+    (str (namespace k) "/" (name k))
+    (name k)))
+
+(defn- log!
+  "Append one structured line to `log-path`. Format:
+     <ts> [LEVEL] event key=val key=val ...
+   Spit failure is silently swallowed — log failure must never crash
+   the worker."
+  [log-path level event & kvs]
+  (let [kv-str (when (seq kvs)
+                 (str " " (str/join " " (map (fn [[k v]] (str (kw->str k) "=" v))
+                                             (partition 2 kvs)))))
+        line   (str (ts-now) " [" (format "%-5s" (str/upper-case (name level))) "] "
+                    (kw->str event) kv-str "\n")]
+    (try (spit log-path line :append true)
+         (catch Throwable _ nil))))
 
 ;; ------------------------------------------------------------------
 ;; Pipeline orchestration
@@ -135,56 +155,120 @@
 (defn- now-date [] (Date.))
 
 (defn- worker-config
-  "Extract the `:worker/async` section with safe defaults."
+  "Extract the `:worker/async` section with safe defaults.
+
+   `stale-lock-seconds` — how long the worker lock can go un-heartbeated
+   before another worker considers it stale (heartbeat fires every
+   `:heartbeat-seconds`, so this should be >> heartbeat-seconds).
+
+   `inflight-sweep-seconds` — how long a job file can sit in `.inflight/`
+   before the sweep assumes the worker that claimed it has died and moves
+   it back to `jobs/`. Must be > max expected job duration (LLM calls
+   can take 3-4 min). Setting it equal to `stale-lock-seconds` (60s)
+   causes live long-running jobs to be recycled mid-flight, creating
+   infinite claim loops.
+
+   `max-attempts` — lifetime claim limit per job. Exceeded → dead-letter.
+   `max-attempts-per-hour` — rolling 60-min claim limit. Exceeded → dead-letter.
+   Both are circuit-breakers against claim loops regardless of their cause."
   [config]
-  (let [merged (merge {:idle-timeout-seconds    10
-                       :parallelism             2
-                       :stale-lock-seconds      60
-                       :heartbeat-seconds       20
-                       :scan-interval-ms        500
-                       :job-timeout-seconds     90
-                       :inflight-sweep-seconds  nil}
-                      (:worker/async config))]
-    ;; inflight-sweep-seconds defaults to stale-lock-seconds when not set
-    (update merged :inflight-sweep-seconds
-            #(or % (:stale-lock-seconds merged)))))
+  (merge {:idle-timeout-seconds    30
+          :parallelism              2
+          :stale-lock-seconds       90
+          :heartbeat-seconds        20
+          :scan-interval-ms         500
+          :inflight-sweep-seconds   600
+          :max-attempts             10
+          :max-attempts-per-hour     5}
+         (:worker/async config)))
+
+(defn- claims-in-window
+  "Count how many timestamps in `ts-vec` (ISO-8601 strings) fall within
+   the last `window-seconds`. Unparseable entries are ignored."
+  [ts-vec window-seconds]
+  (let [cutoff-ms (- (System/currentTimeMillis) (* 1000 window-seconds))]
+    (count (filter (fn [ts]
+                     (try (> (.toEpochMilli (java.time.Instant/parse ts)) cutoff-ms)
+                          (catch Throwable _ false)))
+                   ts-vec))))
 
 (defn- scan-and-claim!
   "One scanner tick: list pending jobs, sort FIFO, claim the head,
-   return the claimed job (with `:job/file` pointing at the new
-   inflight path), or nil if there's nothing to do / the claim lost
-   a race."
-  [project-root]
+   record the claim (increment attempts + append timestamp), run
+   circuit-breaker checks, and return the job (with `:job/file`).
+
+   Returns nil when there is nothing pending, the claim lost a race,
+   or the circuit-breaker tripped (in which case the job has already
+   been moved to dead-letter so the next tick picks the following job)."
+  [project-root wcfg log-path]
   (when-let [head (first (queue/sort-jobs (store-jobs/list-pending project-root)))]
     (let [fname      (:job/filename head)
           claim-path (store-jobs/claim! project-root fname)]
       (when claim-path
-        (assoc head :job/file claim-path)))))
+        (let [job      (or (store-jobs/record-claim! claim-path)
+                           (assoc head :job/file claim-path))
+              attempts (or (:job/attempts job) 1)
+              recent   (claims-in-window
+                         (or (:job/claim-timestamps job) []) 3600)
+              max-life (or (:max-attempts wcfg) 10)
+              max-hour (or (:max-attempts-per-hour wcfg) 5)]
+          (cond
+            (>= attempts max-life)
+            (do (log! log-path :error :job/circuit-break
+                      :job fname :reason "lifetime-limit" :attempts attempts)
+                (store-jobs/dead-letter!
+                  project-root fname
+                  (assoc job :job/filename fname)
+                  (ex-info "job exceeded max-attempts"
+                           {:attempts attempts :max max-life}))
+                nil)
+
+            (>= recent max-hour)
+            (do (log! log-path :error :job/circuit-break
+                      :job fname :reason "hourly-limit" :recent recent)
+                (store-jobs/dead-letter!
+                  project-root fname
+                  (assoc job :job/filename fname)
+                  (ex-info "job exceeded max-attempts-per-hour"
+                           {:recent recent :max max-hour}))
+                nil)
+
+            :else
+            (assoc job :job/file claim-path :job/filename fname)))))))
 
 (defn- start-scanner!
   "Scanner thread: polls the jobs dir, pushes claimed jobs onto
    `jobs-chan`. Exits when `stop?` flips true. A successful claim
-   resets `last-activity!`."
+   resets `last-activity!`. Circuit-breaker violations are routed to
+   dead-letter inside `scan-and-claim!` and appear as a nil return,
+   so the scanner immediately tries the next job."
   [project-root jobs-chan ^clojure.lang.Atom stop?
-   ^clojure.lang.Atom last-activity! scan-interval-ms]
+   ^clojure.lang.Atom last-activity! wcfg log-path]
   (a/thread
     (try
-      (loop []
-        (when-not @stop?
-          (if-let [job (scan-and-claim! project-root)]
-            (do
-              (reset! last-activity! (now-date))
-              (when-not (a/>!! jobs-chan job)
-                ;; channel was closed under us — exit cleanly
-                (reset! stop? true)))
-            (Thread/sleep (long scan-interval-ms)))
-          (when-not @stop? (recur))))
+      (let [scan-interval-ms (:scan-interval-ms wcfg)]
+        (loop []
+          (when-not @stop?
+            (if-let [job (scan-and-claim! project-root wcfg log-path)]
+              (do
+                (log! log-path :info :scanner/claimed
+                      :job (:job/filename job) :type (:job/type job))
+                (reset! last-activity! (now-date))
+                (when-not (a/>!! jobs-chan job)
+                  ;; channel was closed under us — exit cleanly
+                  (reset! stop? true)))
+              (do
+                (log! log-path :debug :scanner/tick
+                      :pending (store-jobs/count-pending project-root) :claimed "nil")
+                (Thread/sleep (long scan-interval-ms))))
+            (when-not @stop? (recur)))))
       (catch Throwable t
-        (binding [*out* *err*]
-          (println "succession drain scanner error:" (.getMessage t)))))))
+        (log! log-path :error :scanner/error
+              :class (.getName (class t))
+              :msg (or (.getMessage t) ""))))))
 
 (defn- start-heartbeat!
-  [lock-handle ^clojure.lang.Atom stop? heartbeat-seconds]
+  [lock-handle ^clojure.lang.Atom stop? heartbeat-seconds log-path]
   (a/thread
     (try
       (loop []
@@ -192,7 +276,10 @@
           (Thread/sleep (long (* 1000 heartbeat-seconds)))
           (locks/heartbeat! lock-handle)
           (when-not @stop? (recur))))
-      (catch Throwable _ nil))))
+      (catch Throwable t
+        (log! log-path :error :heartbeat/error
+              :class (.getName (class t))
+              :msg (or (.getMessage t) ""))))))
 
 (defn- start-idle-watcher!
   "Watches the queue state and closes `jobs-chan` when the worker has
@@ -206,17 +293,19 @@
    ensures `inflight-count` eventually drops to 0 so the idle
    predicate can fire."
   [project-root jobs-chan ^clojure.lang.Atom stop?
-   ^clojure.lang.Atom last-activity! wcfg]
+   ^clojure.lang.Atom last-activity! wcfg log-path]
   (a/thread
     (try
-      (let [{:keys [scan-interval-ms inflight-sweep-seconds]} wcfg]
+      (let [{:keys [scan-interval-ms]} wcfg]
         (loop []
           (when-not @stop?
             (Thread/sleep (long scan-interval-ms))
-            ;; Sweep stale inflight files back to jobs/ on every tick.
-            ;; The sweep is cheap (one listFiles + mtime check) and
-            ;; ensures orphaned jobs don't block idle shutdown.
-            (store-jobs/sweep-stale-inflight! project-root inflight-sweep-seconds)
+            ;; No inflight sweep here — sweep runs once at worker startup
+            ;; (see run!) so it only targets files from a *previous* crashed
+            ;; worker. Running it on every tick caused active jobs whose
+            ;; inflight mtime was old (claim! preserves enqueue mtime via
+            ;; ATOMIC_MOVE) to be swept back to pending while still running,
+            ;; producing an infinite claim loop.
             (let [snapshot {:queue/pending-count    (store-jobs/count-pending project-root)
                             :queue/inflight-count   (store-jobs/count-inflight project-root)
                             :queue/last-activity-at @last-activity!
@@ -228,10 +317,17 @@
                         (pos? (:queue/inflight-count snapshot)))
                 (reset! last-activity! (:queue/now snapshot)))
               (if (queue/idle? snapshot wcfg)
-                (do (reset! stop? true)
-                    (a/close! jobs-chan))
+                (do
+                  (log! log-path :info :idle/fire
+                        :pending (:queue/pending-count snapshot)
+                        :inflight (:queue/inflight-count snapshot))
+                  (reset! stop? true)
+                  (a/close! jobs-chan))
                 (recur))))))
-      (catch Throwable _ nil))))
+      (catch Throwable t
+        (log! log-path :error :idle/watcher-error
+              :class (.getName (class t))
+              :msg (or (.getMessage t) ""))))))
 
 (defn- process-one
   "Handler wrapper run inside the `pipeline-blocking` lane. Catches
@@ -246,7 +342,7 @@
    Babashka threading deadlock: the future's thread pool saturated when
    every pipeline worker was simultaneously waiting on a slow
    subprocess, preventing `deref` from ever unblocking."
-  [handle-fn job]
+  [handle-fn job _log-path]
   (let [started (now-date)]
     (try
       (let [side-fx  (handle-fn job)
@@ -260,20 +356,34 @@
   "Read every result off `results-chan`, route :ok → complete! and
    :error → dead-letter!. Blocks until the channel closes (which
    happens after `pipeline-blocking` sees its input close)."
-  [project-root results-chan]
+  [project-root results-chan log-path]
   (loop []
     (when-let [result (a/<!! results-chan)]
-      (let [fname (:result/job-filename result)]
+      (let [fname       (:result/job-filename result)
+            started     (:result/started-at result)
+            finished    (:result/finished-at result)
+            duration-ms (when (and started finished)
+                          (- (.getTime ^java.util.Date finished)
+                             (.getTime ^java.util.Date started)))]
         (case (queue/classify-result result)
-          :ok    (store-jobs/complete! project-root fname)
-          :error (let [err (:result/error result)
-                       ex  (ex-info (or (:message err) "handler error")
-                                    {:class (:class err)})]
-                   (store-jobs/dead-letter!
-                     project-root fname
-                     {:job/id (:result/job-id result)
-                      :job/filename fname}
-                     ex))))
+          :ok
+          (do
+            (log! log-path :info :job/complete
+                  :job fname :duration (str duration-ms "ms"))
+            (store-jobs/complete! project-root fname))
+          :error
+          (let [err (:result/error result)
+                ex  (ex-info (or (:message err) "handler error")
+                             {:class (:class err)})]
+            (log! log-path :error :job/error
+                  :job fname
+                  :class (or (:class err) "")
+                  :msg (or (:message err) ""))
+            (store-jobs/dead-letter!
+              project-root fname
+              {:job/id (:result/job-id result)
+               :job/filename fname}
+              ex))))
       (recur))))
 
 ;; ------------------------------------------------------------------
@@ -304,7 +414,10 @@
          0)
 
        :else
-       (let [_              (store-jobs/sweep-stale-inflight! project-root
+       (let [log-path       (paths/jobs-worker-log project-root)
+             _              (log! log-path :info :worker/start
+                                  :parallelism (:parallelism wcfg))
+             _              (store-jobs/sweep-stale-inflight! project-root
                                                               (:stale-lock-seconds wcfg))
              jobs-chan      (a/chan (:parallelism wcfg))
              results-chan   (a/chan (:parallelism wcfg))
@@ -312,20 +425,21 @@
              last-activity! (atom (now-date))
              real-handler   (fn [job] (handle-job! job cfg))
              effective      (or handle-fn real-handler)
-             xform          (map (fn [job] (process-one effective job)))
+             xform          (map (fn [job] (process-one effective job log-path)))
              _pipe          (a/pipeline-blocking
                               (:parallelism wcfg)
                               results-chan
                               xform
                               jobs-chan)
              _scanner       (start-scanner! project-root jobs-chan stop?
-                                            last-activity! (:scan-interval-ms wcfg))
+                                            last-activity! wcfg log-path)
              _idle          (start-idle-watcher! project-root jobs-chan stop?
-                                                 last-activity! wcfg)
-             _hb            (start-heartbeat! lock stop? (:heartbeat-seconds wcfg))]
+                                                 last-activity! wcfg log-path)
+             _hb            (start-heartbeat! lock stop? (:heartbeat-seconds wcfg) log-path)]
          (try
-           (drain-results! project-root results-chan)
+           (drain-results! project-root results-chan log-path)
            0
            (finally
+             (log! log-path :info :worker/exit)
              (reset! stop? true)
              (locks/release! lock))))))))

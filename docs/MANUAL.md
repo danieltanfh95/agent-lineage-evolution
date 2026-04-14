@@ -23,6 +23,11 @@ Every command loads its effective config via
 `.succession/config.edn` over `default-config`. See [Config file
 reference](#config-file-reference).
 
+`project-root` for hooks is derived from the `:cwd` field in the hook
+payload by walking up the directory tree until a directory containing
+`.succession/config.edn` or `.git` is found. This prevents a split-queue
+bug when Claude Code's session cwd is a subdirectory (e.g. `bb/`).
+
 ## Commands
 
 ### consult
@@ -379,9 +384,9 @@ PostToolUse refresh.
 
 | Key | Default model | Default timeout (s) | Notes |
 |-----|---------------|---------------------|-------|
-| `:reconcile/llm :model` | `claude-sonnet-4-6` | 60 | `:auto-apply-confidence` 0.8 |
-| `:judge/llm :model` | `claude-sonnet-4-6` | 30 | async PostToolUse verdict lane |
-| `:consult/llm :model` | `claude-sonnet-4-6` | 60 | `bb consult` reflection |
+| `:reconcile/llm :model` | `deepseek/deepseek-chat` | 90 | `:auto-apply-confidence` 0.8; `:max-batch-size` 10 (all open contradictions resolved in one LLM call) |
+| `:judge/llm :model` | `deepseek/deepseek-chat` | 30 | async PostToolUse verdict lane |
+| `:consult/llm :model` | `deepseek/deepseek-chat` | 60 | `bb consult` reflection |
 
 ### Correction detection
 
@@ -441,6 +446,7 @@ All paths under `<project-root>/.succession/`. Source of truth:
 │       ├── .inflight/{ts}-{uuid}.json         claimed by a worker
 │       ├── dead/{ts}-{uuid}.json              handler threw
 │       ├── dead/{ts}-{uuid}.error.edn         sibling error snapshot
+│       ├── .worker.log                        drain worker event log (tail -f friendly)
 │       └── .worker.lock                       at-most-one drain worker
 ├── observations/
 │   └── {session-id}/
@@ -482,7 +488,10 @@ drain` process is alive to drain it. The worker self-exits after
   lettered a batch.
 - `bb succession queue clear-dead [--older-than 7d]` — delete dead
   pairs you've decided you don't want to replay.
-- `/tmp/.succession-drain-worker.log` — worker stdout/stderr.
+- `.succession/staging/jobs/.worker.log` — structured worker event log (one
+  line per event). `tail -f` this file during a live drain to see
+  `scanner/tick`, `scanner/claimed`, `job/complete`, and `idle/fire` events
+  in real time. The last 20 lines also appear in `bb succession queue status`.
 
 A lock older than `:stale-lock-seconds` (default 60s) is cleared
 automatically by the next hook invocation.
@@ -491,12 +500,15 @@ automatically by the next hook invocation.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `:idle-timeout-seconds` | 10 | Grace window after last activity before worker exits |
+| `:idle-timeout-seconds` | 30 | Grace window after last activity before worker exits |
 | `:parallelism` | 2 | Concurrent handler lanes (caps concurrent LLM calls) |
 | `:stale-lock-seconds` | 60 | mtime age past which `.worker.lock` is considered abandoned |
 | `:heartbeat-seconds` | 20 | How often the live worker rewrites the lock body |
 | `:scan-interval-ms` | 500 | How often the scanner walks `jobs/` |
 | `:dead-letter-enabled` | true | Whether to keep failed jobs under `dead/` (else drop) |
+| `:inflight-sweep-seconds` | 600 | How long a job may sit in `.inflight/` before the startup sweep reclaims it (must exceed max LLM call duration) |
+| `:max-attempts` | 10 | Lifetime claim limit per job; exceeded → dead-letter (circuit breaker) |
+| `:max-attempts-per-hour` | 5 | Rolling 60-min claim limit; exceeded → dead-letter (circuit breaker) |
 
 There is no automatic retry for handler failures — LLM errors rarely
 self-heal. The only retry path is the inflight sweep: a job file left
