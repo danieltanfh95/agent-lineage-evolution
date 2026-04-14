@@ -7,15 +7,15 @@ Exhaustive command and hook reference. For the architectural context see
 ## Synopsis
 
 ```
-bb -m succession.core <command> [args…]
+succession <command> [args…]
 ```
 
 Two kinds of invocation:
 
-- `bb -m succession.core hook <event>` — wired into Claude Code via
+- `succession hook <event>` — wired into Claude Code via
   `.claude/settings.local.json`. Reads one JSON object on stdin, emits zero
   or one on stdout.
-- `bb -m succession.core <cli-subcommand>` — invoked by the user or the
+- `succession <cli-subcommand>` — invoked by the user or the
   agent via Bash. Prints to stdout, exits with a meaningful status code.
 
 Every command loads its effective config via
@@ -26,7 +26,7 @@ reference](#config-file-reference).
 `project-root` for hooks is derived from the `:cwd` field in the hook
 payload by walking up the directory tree until a directory containing
 `.succession/config.edn` or `.git` is found. This prevents a split-queue
-bug when Claude Code's session cwd is a subdirectory (e.g. `bb/`).
+bug when Claude Code's session cwd is a subdirectory.
 
 ## Commands
 
@@ -37,7 +37,7 @@ invokes it via Bash when uncertain; humans run it to see what the agent
 would see.
 
 ```
-bb -m succession.core consult "<situation>" [flags…]
+succession consult "<situation>" [flags…]
 ```
 
 | Flag | Arg | Description |
@@ -59,9 +59,9 @@ situation is required.
 **Examples:**
 
 ```bash
-bb -m succession.core consult "about to force-push to main"
-bb -m succession.core consult "rewriting a test file" --tool-name Edit --intent "fix assertion"
-bb -m succession.core consult "ship the migration" --tier principle --dry-run
+succession consult "about to force-push to main"
+succession consult "rewriting a test file" --tool-name Edit --intent "fix assertion"
+succession consult "ship the migration" --tier principle --dry-run
 ```
 
 Output: the LLM reflection (four tier sections + tensions + reflection).
@@ -69,7 +69,7 @@ Every card that made it into the candidate pool is logged as a
 `:consulted` observation — weight-neutral but visible in the audit
 trail. Exit 0 on success, 1 on LLM error or missing situation.
 
-Reference: `bb/src/succession/cli/consult.clj`.
+Reference: `src/succession/cli/consult.clj`.
 
 ### replay
 
@@ -78,7 +78,7 @@ sandbox directory. Used to catch shape regressions across the
 store/domain/LLM boundary without actually calling the judge.
 
 ```
-bb -m succession.core replay <transcript.jsonl>
+succession replay <transcript.jsonl>
 ```
 
 No flags — positional argument only. The harness:
@@ -93,14 +93,14 @@ No flags — positional argument only. The harness:
 
 Exit 0 on success, 1 on any error (transcript missing, parse failure).
 
-Reference: `bb/src/succession/cli/replay.clj`.
+Reference: `src/succession/cli/replay.clj`.
 
 ### config
 
 Three subcommands for the `.succession/config.edn` file.
 
 ```
-bb -m succession.core config <validate | show | init>
+succession config <validate | show | init>
 ```
 
 - **`validate`** — read the effective config (defaults + overlay) and
@@ -111,14 +111,14 @@ bb -m succession.core config <validate | show | init>
   the defaults and inline comments. Refuses to overwrite an existing
   file (exit 1). Idempotent for fresh installs.
 
-Reference: `bb/src/succession/cli/config_validate.clj`.
+Reference: `src/succession/cli/config_validate.clj`.
 
 ### install
 
 One-shot atomic setup of everything Succession needs in a project.
 
 ```
-bb -m succession.core install
+succession install
 ```
 
 Writes (all idempotent; existing files are left alone):
@@ -133,15 +133,13 @@ Writes (all idempotent; existing files are left alone):
   `.succession/archive/`, `.succession/contradictions/`,
   `.succession/judge/` — live store directories.
 - `.claude/settings.local.json` — hook entries for all six events,
-  each pointing at `bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m
-  succession.core hook <event>`. Existing non-Succession hooks are
-  preserved.
+  each pointing at the global `succession` binary. Existing
+  non-Succession hooks are preserved.
 
-`install` auto-detects the classpath root: `bb/src/succession/core.clj`
-wins over `src/succession/core.clj`. Prints a per-step report (`ok` /
-`skip` / `ERR`) and exits 0 if every step is `:ok` or `:skipped`.
+Prints a per-step report (`ok` / `skip` / `ERR`) and exits 0 if every
+step is `:ok` or `:skipped`.
 
-Reference: `bb/src/succession/cli/install.clj`.
+Reference: `src/succession/cli/install.clj`.
 
 ### identity-diff
 
@@ -150,7 +148,7 @@ archive under `.succession/archive/{ts}/promoted/…` before rewriting
 the live tree; `identity-diff` shows what changed.
 
 ```
-bb -m succession.core identity-diff <ts1> <ts2|current>
+succession identity-diff <ts1> <ts2|current>
 ```
 
 `ts1` and `ts2` are archive directory names (timestamp strings). `ts2`
@@ -167,7 +165,7 @@ Reports four change categories:
 Exit 0 on successful diff (including "no differences"), 2 on missing
 args.
 
-Reference: `bb/src/succession/cli/identity_diff.clj`.
+Reference: `src/succession/cli/identity_diff.clj`.
 
 ### show
 
@@ -175,7 +173,7 @@ Pretty-print the live promoted identity — the same rendering
 SessionStart serves as `additionalContext`, on demand.
 
 ```
-bb -m succession.core show [--format markdown|edn]
+succession show [--format markdown|edn]
 ```
 
 - `--format markdown` (default) — tiered tree under `## Principles /
@@ -186,7 +184,7 @@ bb -m succession.core show [--format markdown|edn]
 Exit 0 on success. Empty store prints `_No promoted identity cards
 yet._` and still returns 0.
 
-Reference: `bb/src/succession/cli/show.clj`.
+Reference: `src/succession/cli/show.clj`.
 
 ### queue
 
@@ -195,7 +193,7 @@ section below for context on what the queue is and when it goes
 wrong).
 
 ```
-bb -m succession.core queue <status | list-dead | requeue | clear-dead>
+succession queue <status | list-dead | requeue | clear-dead>
 ```
 
 Subcommands:
@@ -214,7 +212,40 @@ Subcommands:
 
 Exit 0 on success, 1 on invalid usage or unknown subcommand.
 
-Reference: `bb/src/succession/cli/queue.clj`.
+Reference: `src/succession/cli/queue.clj`.
+
+### bench
+
+Run the judge regression/cost/latency harness. Tests a set of LLM models
+against 9 fixture tool-call cases and emits a comparison table.
+
+```
+succession bench [flags…]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--models m1,m2,…` | curated 6 | Comma-separated model IDs (see BENCH.md for the full list) |
+| `--models all` | — | Full sweep (13 models) |
+| `--runs N` | `1` | Runs per case per model (use ≥5 for stable averages; single-run scores are noisy) |
+| `--timeout N` | `45` | Per-call LLM timeout in seconds |
+| `--output-dir PATH` | `.succession/bench/` | EDN output directory |
+
+Output to stdout: one progress dot per case (`.` = correct, `~` = wrong,
+`x` = parse failure), then a markdown table with Parse%, Accuracy%, Avg
+Cost, Avg Latency, Avg Output Tokens, and a letter grade. Full per-case
+detail is written to `<output-dir>/<timestamp>.edn` for later analysis.
+
+When to use: before switching the judge model in `.succession/config.edn`.
+The bench exercises the exact judge code paths (`judge/build-tool-prompt` +
+`judge/parse-response`) so the grade directly predicts production accuracy.
+
+See [BENCH.md](BENCH.md) for fixture case descriptions, scoring rubric, and
+historical results.
+
+Exit 0 on success, 1 on transport error or missing models.
+
+Reference: `src/succession/cli/bench.clj`.
 
 ### import
 
@@ -222,7 +253,7 @@ One-shot migration of an old `.succession/rules/*.md` YAML-frontmatter
 directory into the new card store.
 
 ```
-bb -m succession.core import <old-rules-dir>
+succession import <old-rules-dir>
 ```
 
 Each old rule becomes a `:create-card` delta. All imported cards land
@@ -237,7 +268,73 @@ but the second promotion rewrites the same card id with the same text.
 Exit 0 on success, 1 if no files parsed or directory missing, 2 on
 missing argument.
 
-Reference: `bb/src/succession/cli/import.clj`.
+Reference: `src/succession/cli/import.clj`.
+
+### compact
+
+Manually trigger the PreCompact promotion pipeline outside the normal
+Claude Code compaction flow.
+
+```
+succession compact
+```
+
+Reads all `staging/{session-id}/deltas.jsonl` files not yet promoted,
+applies them to the working card set (`:create-card`, `:update-card-text`,
+`:propose-tier`, `:propose-merge`), retiers every card by current metrics,
+archives the pre-promotion state to `.succession/archive/{ts}/`, rewrites
+`identity/promoted/` atomically under the promote lock, and clears the
+processed staging directories.
+
+**When to use vs PreCompact hook:**
+
+- **PreCompact hook** runs automatically when Claude Code compacts the
+  context window. This is the normal promotion path.
+- **`compact`** is for out-of-band promotion: after a long session where
+  async reconcile has settled but the context has not yet been compacted;
+  before starting a new session to verify the current identity state; or
+  after manually editing card files and wanting the promoted snapshot
+  refreshed.
+
+A failing `compact` does not corrupt the promoted tree — the archive
+snapshot is written before any card file is touched, so an interrupted
+promotion is recoverable by copying the archive back.
+
+Exit 0 on success, 1 on lock acquisition failure or card-write error.
+
+Reference: `src/succession/hook/pre_compact.clj` (the same `promote!`
+function the hook calls; the CLI is a thin wrapper).
+
+### staging
+
+Inspect and prune intra-session staging directories under
+`.succession/staging/`.
+
+```
+succession staging <status | prune [flags…]>
+```
+
+Subcommands:
+
+- **`status`** — print a summary of all staging directories: session id,
+  delta count, snapshot presence, and last-modified age. Sessions with
+  orphaned staging (previous sessions whose deltas have not yet been
+  promoted) are flagged.
+- **`prune [flags]`** — delete staging directories matching the filter.
+
+  | Flag | Description |
+  |------|-------------|
+  | `--keep-last N` | Keep the N most recent sessions' staging; delete the rest |
+  | `--older-than Nd` | Delete directories last modified more than N days ago (also accepts `Nh` for hours) |
+
+  Without a flag, `prune` prints what would be deleted (dry run) without
+  deleting anything.
+
+`prune` never deletes the current active session's directory. Observations
+under `.succession/observations/` are not touched — only staging delta logs
+(`deltas.jsonl`) and materialized snapshots (`snapshot.edn`).
+
+Exit 0 on success, 1 on invalid usage.
 
 ### hook &lt;event&gt;
 
@@ -246,7 +343,7 @@ object on stdin, runs the event handler, emits zero or one JSON object
 on stdout, never throws.
 
 ```
-bb -m succession.core hook <event>
+succession hook <event>
 ```
 
 Six events, matching Claude Code's schema:
@@ -423,7 +520,7 @@ whitepaper §3.3.3 for the taxonomy.
 ## Disk layout
 
 All paths under `<project-root>/.succession/`. Source of truth:
-`bb/src/succession/store/paths.clj`.
+`src/succession/store/paths.clj`.
 
 ```
 .succession/
@@ -470,28 +567,28 @@ coexistence window); renaming would drop in-flight counters.
 
 PostToolUse (judge) and Stop (LLM reconcile) do their heavy work
 asynchronously. Both hooks enqueue a job file under
-`.succession/staging/jobs/` and ensure a single `bb succession worker
+`.succession/staging/jobs/` and ensure a single `succession worker
 drain` process is alive to drain it. The worker self-exits after
 `:idle-timeout-seconds` of inactivity.
 
 **If async work isn't landing, check:**
 
-- `bb succession queue status` — one-line counters (pending / inflight
+- `succession queue status` — one-line counters (pending / inflight
   / dead) plus `.worker.lock` state. This is the fastest way to tell
   whether jobs are piling up or draining cleanly.
-- `bb succession queue list-dead` — tabular view of dead-lettered jobs
+- `succession queue list-dead` — tabular view of dead-lettered jobs
   with the first line of each exception message. Sibling `.error.edn`
   files carry the full stack trace under `:trace`.
-- `bb succession queue requeue <filename>` or `requeue --all` — move
+- `succession queue requeue <filename>` or `requeue --all` — move
   dead jobs back to `jobs/` for another attempt (filename preserved,
   so FIFO order is retained). Use this after fixing a bug that dead-
   lettered a batch.
-- `bb succession queue clear-dead [--older-than 7d]` — delete dead
+- `succession queue clear-dead [--older-than 7d]` — delete dead
   pairs you've decided you don't want to replay.
 - `.succession/staging/jobs/.worker.log` — structured worker event log (one
   line per event). `tail -f` this file during a live drain to see
   `scanner/tick`, `scanner/claimed`, `job/complete`, and `idle/fire` events
-  in real time. The last 20 lines also appear in `bb succession queue status`.
+  in real time. The last 20 lines also appear in `succession queue status`.
 
 A lock older than `:stale-lock-seconds` (default 60s) is cleared
 automatically by the next hook invocation.
@@ -519,8 +616,7 @@ worker's startup sweep.
 
 | Variable | Description |
 |----------|-------------|
-| `SUCCESSION_BB_SRC` | Fallback classpath root used by the hook-layer worker spawn if `<user.dir>/bb/src` does not exist. |
-| `CLAUDE_PROJECT_DIR` | Set by Claude Code's harness. `install` bakes `$CLAUDE_PROJECT_DIR/bb/src` (or `/src`) into the settings.json hook commands so one install moves with the project. |
+| `CLAUDE_PROJECT_DIR` | Set by Claude Code's harness. Hook commands use the global `succession` binary, so no classpath baking is needed. |
 
 ## Exit codes
 

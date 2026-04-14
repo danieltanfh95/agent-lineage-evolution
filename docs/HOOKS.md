@@ -37,8 +37,8 @@ All six handlers follow the same skeleton in `hook/common.clj`:
 `common/project-root` walks **up** the directory tree from `:cwd` until it
 finds a directory containing `.succession/config.edn` or `.git`. This
 prevents split queues when Claude Code's session cwd is a subdirectory
-(e.g. `bb/`) — without the walk-up, hooks fired from `bb/` would create a
-second `.succession/` store under `bb/.succession/` that the user never
+— without the walk-up, hooks fired from a subdirectory would create a
+second `.succession/` store under that subdirectory that the user never
 sees.
 
 No uncaught exception is ever propagated to the Claude Code harness.
@@ -90,7 +90,7 @@ nothing else.
 - Orphan staging is detected but not cleared. The next PreCompact folds
   the deltas in.
 
-Reference: `bb/src/succession/hook/session_start.clj`.
+Reference: `src/succession/hook/session_start.clj`.
 
 ## UserPromptSubmit
 
@@ -140,7 +140,7 @@ Deliberately broad; the extract LLM filters downstream.
 fails to compile it's silently skipped (caller-defined patterns should
 not fail compilation, but we don't want one typo to break the hook).
 
-Reference: `bb/src/succession/hook/user_prompt_submit.clj`.
+Reference: `src/succession/hook/user_prompt_submit.clj`.
 
 ## PreToolUse
 
@@ -191,7 +191,7 @@ PostToolUse's sync lane, so they stay in lock-step.
   (`"tool=<name>,input=<edn>"`) must stay substring-compatible with
   PostToolUse so card `:card/fingerprint` values match both hooks.
 
-Reference: `bb/src/succession/hook/pre_tool_use.clj`.
+Reference: `src/succession/hook/pre_tool_use.clj`.
 
 ## PostToolUse
 
@@ -240,10 +240,10 @@ Otherwise empty.
   `.succession/observations/<session-id>/`.
 - One job file enqueued under `.succession/staging/jobs/<ts>-<uuid>.json`
   containing `{:job/type "judge" :job/payload {:tool-name … :tool-input …}}`.
-- A detached `bb succession worker drain` process may be spawned if
+- A detached `succession worker drain` process may be spawned if
   `.succession/staging/jobs/.worker.lock` is absent or stale. Worker
   stdout/stderr go to `.succession/staging/jobs/.worker.log` (project-scoped;
-  also readable via `bb succession queue status`).
+  also readable via `succession queue status`).
 
 **Refresh gate (Finding 1 — do not re-derive).**
 
@@ -280,7 +280,7 @@ the refresh reminder, so the session is degraded but operational.
   API request stalls. Keep the sync path free of LLM calls and heavy
   disk work.
 - The hook does not wait on the worker. `enqueue-and-ensure-worker!`
-  writes the job file, then (if no live lock) detaches a `bb succession
+  writes the job file, then (if no live lock) detaches a `succession
   worker drain` process with `:shutdown nil` and returns. A spawn failure
   is swallowed — the sync lane already emitted its reminder, so the
   session is degraded but operational.
@@ -290,8 +290,15 @@ the refresh reminder, so the session is degraded but operational.
 - `asyncRewake` is deferred. The async judge writes observations, but
   there is no path for its output to re-enter the current turn. That
   headless-continuation-loop integration is future work.
+- `transcript/recent-context` returns `nil` when `:transcript_path` is
+  absent from the hook payload, points to a missing file, or the file
+  cannot be parsed as JSONL. The async lane handles nil gracefully: the
+  `:judge` job is enqueued with `{:recent-context nil}` in its payload and
+  the judge LLM call proceeds without context text. No error is thrown;
+  verdict quality may be slightly lower on sessions where the transcript
+  path is unavailable.
 
-Reference: `bb/src/succession/hook/post_tool_use.clj`.
+Reference: `src/succession/hook/post_tool_use.clj`.
 
 ## Stop
 
@@ -329,7 +336,7 @@ reminder at end-of-turn is wasted work since the agent is done.
   Resolutions that pass `auto-applicable?` are marked resolved via
   `store/contradictions/mark-resolved!` (5-arity, storing the resolution
   map including `:new-text`). At the next PreCompact, pending rewrites
-  are applied to card text via `apply-pending-llm-rewrites`. A detached `bb succession worker
+  are applied to card text via `apply-pending-llm-rewrites`. A detached `succession worker
   drain` process may be spawned if no live lock is held.
 
 **Latency budget.** ≤2 s for the pure pass (bounded by disk reads over
@@ -344,15 +351,20 @@ is unbounded; the hook never waits on it.
 - Stop does not emit `systemMessage`. The agent is done for the turn;
   messages here are discarded.
 - The async lane is decoupled: Stop enqueues a `:llm-reconcile` job
-  and returns. The drain worker is a separate `bb succession worker
+  and returns. The drain worker is a separate `succession worker
   drain` process with its own entrypoint, so there is no recursive
   hook re-entry concern — no subprocess guard needed.
 - The pure pass reads every observation on disk. On very large stores
   this is the hook most likely to slip past the ≤2 s budget; retention
   (`:retention/raw-observations-sessions`, default 50) is the
   countermeasure.
+- `run-pure-reconcile!` deduplicates before writing contradiction records:
+  if a `(card-id, category)` pair already has an open (unresolved)
+  contradiction in `.succession/contradictions/`, the pure pass skips that
+  pair. This prevents duplicate contradiction files when Stop fires multiple
+  times against the same card state within a session.
 
-Reference: `bb/src/succession/hook/stop.clj`.
+Reference: `src/succession/hook/stop.clj`.
 
 ## PreCompact
 
@@ -419,12 +431,12 @@ gets computed for each card).
   a try/catch; any throwable is caught, logged to stderr, and
   swallowed. The lock releases on scope exit regardless.
 
-Reference: `bb/src/succession/hook/pre_compact.clj`.
+Reference: `src/succession/hook/pre_compact.clj`.
 
 ## Async drain worker model
 
 PostToolUse and Stop share a single filesystem-backed job queue drained
-by one `bb succession worker drain` process. The hooks never spawn a
+by one `succession worker drain` process. The hooks never spawn a
 per-call child — they enqueue a job file and ensure a worker is alive.
 
 ### Disk layout
@@ -519,7 +531,7 @@ disk, so the next hook invocation will retry the spawn.
   claims in the last hour `≥ max-attempts-per-hour` (default 5), the
   scanner dead-letters the job immediately instead of handing it to
   the pipeline. Handler failures (non-loop) land in `dead/` with a
-  sibling `.error.edn`; operators re-queue via `bb succession queue
+  sibling `.error.edn`; operators re-queue via `succession queue
   requeue <filename>`.
 - **Crash recovery.** A kill-9 mid-job leaves `.inflight/<name>.json`
   behind. The next worker's startup sweep moves it back to `jobs/`

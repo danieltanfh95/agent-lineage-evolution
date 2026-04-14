@@ -7,19 +7,19 @@ Succession judge role.
 
 ```bash
 # Default curated 6-model run
-bb succession bench
+succession bench
 
 # Specific models
-bb succession bench --models opencode-go/mimo-v2-pro,openai/gpt-5.4-mini
+succession bench --models opencode-go/mimo-v2-pro,openai/gpt-5.4-mini
 
 # Full 13-model sweep
-bb succession bench --models all
+succession bench --models all
 
 # Multiple runs for averaging
-bb succession bench --models openai/gpt-5.4-mini --runs 3
+succession bench --models openai/gpt-5.4-mini --runs 3
 
 # Custom timeout
-bb succession bench --timeout 90
+succession bench --timeout 90
 ```
 
 ## Options
@@ -39,7 +39,7 @@ The bench calls `transport/call` + `judge/parse-response` directly — NOT
 escalation-to-opus logic.
 
 ```
-bb succession bench
+succession bench
   |
   +- For each model (sequential):
   |   +- For each of 9 fixture cases:
@@ -216,6 +216,6 @@ to Sonnet's superior nuance handling when the primary verdict is uncertain.
 
 ## Files
 
-- `bb/src/succession/cli/bench.clj` — the bench implementation
-- `bb/src/succession/llm/transport.clj` — transport routing (openai/, opencode/ prefixes added)
-- `bb/src/succession/core.clj` — `"bench"` dispatch entry
+- `src/succession/cli/bench.clj` — the bench implementation
+- `src/succession/llm/transport.clj` — transport routing (openai/, opencode/ prefixes added)
+- `src/succession/core.clj` — `"bench"` dispatch entry

@@ -25,15 +25,16 @@ and which invariants hold the pipeline together. For command-line usage see
                     dependencies point downward only
 ```
 
-- **`core`** (`bb/src/succession/core.clj`) is thin routing. `bb -m
-  succession.core hook <event>` lazily requires the matching `hook.*` ns;
-  `bb -m succession.core <cli-cmd>` dispatches to `cli.*`. No domain logic
+- **`core`** (`src/succession/core.clj`) is thin routing. `succession hook <event>`
+  lazily requires the matching `hook.*` ns;
+  `succession <cli-cmd>` dispatches to `cli.*`. No domain logic
   lives here.
 - **`hook/*`** handle Claude Code's six lifecycle events. Each reads one JSON
   object from stdin, does its work, emits zero or one JSON object on stdout.
   Never throws — errors go to `*err*` and the hook returns nil.
 - **`cli/*`** are invoked manually by the user or by the agent via `Bash`.
-  `consult`, `replay`, `config`, `install`, `identity-diff`, `import`.
+  `consult`, `replay`, `config`, `install`, `identity-diff`, `import`,
+  `compact`, `staging`, `bench`.
 - **`llm/*`** wraps `claude -p` subprocess calls (judge, extract, reconcile,
   consult).
 - **`store/*`** is the only layer allowed to touch disk. Cards, observations,
@@ -46,7 +47,7 @@ and which invariants hold the pipeline together. For command-line usage see
   formula, tier hysteresis, reconcile detectors, consult scoring, rollup,
   render, and the queue policy fns (`sort-jobs`, `idle?`, `job->result`).
 
-The hexagonal invariant is enforced by the layer tests in `bb/test/succession/`:
+The hexagonal invariant is enforced by the layer tests in `test/succession/`:
 `domain/*` must not import from `store/*`, `llm/*`, or `hook/*`.
 
 ## Data shapes
@@ -210,6 +211,17 @@ hook.post-tool-use/run
         └─ ensure-worker-running!           ← spawn drain worker if lock absent
 ```
 
+**`transcript.clj` utility.** `succession.transcript/recent-context` reads the
+tail of the Claude Code session JSONL (path supplied by the hook payload's
+`:transcript_path` field), filters to `{"user", "assistant"}` message types,
+truncates each message body, and returns a formatted string or `nil`. It is
+called in the PostToolUse sync lane before enqueue so the judge job payload
+includes conversational context. A `nil` return (missing path, malformed JSONL,
+or any I/O error) is handled gracefully: the job is still enqueued with
+`{:recent-context nil}` and the judge proceeds without context text.
+
+Source: `src/succession/transcript.clj`.
+
 The sync lane must return before Claude Code's next API request or the agent
 turn stalls. The async lane is fire-and-forget from the hook's point of view
 — it appends a `:judge` job to `staging/jobs/` and returns. See §Async job
@@ -299,7 +311,7 @@ Every knob comes from config; nothing is hard-coded. Default values in
 
 ### Test battery
 
-Five scenarios pinned in `bb/test/succession/domain/weight_test.clj`.
+Five scenarios pinned in `test/succession/domain/weight_test.clj`.
 Assertions are about ordering, not absolute numbers, so the formula can be
 tuned without rewriting the tests.
 
@@ -339,7 +351,7 @@ cannot simultaneously promote and demote. An `:ethic` card whose weight
 drops below `:archive-below-weight` becomes `:archived` and drops out of
 the promoted tree.
 
-Reference: `bb/src/succession/domain/tier.clj`.
+Reference: `src/succession/domain/tier.clj`.
 
 ## Reconcile pipeline
 
@@ -354,6 +366,14 @@ at Stop; two require LLM judgement and run asynchronously.
 | 4 | Tier violation | `detect-tier-violation` | pure (Stop) | `:apply-tier` — recompute via `tier/eligible-tier` |
 | 5 | Provenance conflict (same born-session + born-context) | `detect-provenance-conflicts` | pure (Stop) | `:merge-candidates` |
 | 6 | Contextual override (violated → sustained confirm) | `detect-contextual-override` + `llm/reconcile/resolve-contextual-override` | pure detect → LLM rewrite (Stop async) | scope-qualify rewrite or mark intentional |
+
+**Stop dedup.** `run-pure-reconcile!` skips any `(card-id, category)` pair
+that already has an open (unresolved) contradiction record in
+`.succession/contradictions/`. This prevents duplicate contradiction files
+when Stop fires multiple times against the same card state within a session.
+Categories 1, 4, 5, and 6 are all subject to this dedup; the LLM pass for
+categories 2 and 3 operates on the same open-contradictions list and is
+therefore implicitly deduplicated by the pure pass.
 
 The pure pass writes contradiction records to `store/contradictions` and
 stages `:mark-contradiction` deltas so PreCompact can act. The LLM pass is
@@ -407,7 +427,7 @@ JSON file. Claim (jobs/ → .inflight/) uses the same atomic move primitive,
 so two workers cannot both claim the same file.
 
 **At-most-one worker.** `.worker.lock` is created with `Files/createFile`
-(atomic, create-if-not-exists). Hooks spawn `bb succession worker drain`
+(atomic, create-if-not-exists). Hooks spawn `succession worker drain`
 only when the lock is absent or its mtime is older than
 `:stale-lock-seconds` (60s by default, 3× the heartbeat). The worker's
 first act is `try-lock-at`; a losing race immediately exits 0.
@@ -446,9 +466,9 @@ Configured via `:worker/async` in `.succession/config.edn`:
 | `:scan-interval-ms` | 500 | jobs-dir poll interval |
 | `:dead-letter-enabled` | true | (reserved for future use) |
 
-Source: `bb/src/succession/store/jobs.clj`,
-`bb/src/succession/domain/queue.clj`,
-`bb/src/succession/worker/drain.clj`.
+Source: `src/succession/store/jobs.clj`,
+`src/succession/domain/queue.clj`,
+`src/succession/worker/drain.clj`.
 
 ## Finding 1 in one paragraph
 

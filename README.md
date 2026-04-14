@@ -48,7 +48,7 @@ Cards are updated through three parallel pipelines:
   invocation signatures, writing `:invoked` observations.
 - **Async conscience judge** — PostToolUse enqueues a `:judge` job on the
   filesystem-backed queue under `.succession/staging/jobs/`. A single
-  `bb succession worker drain` process LLM-judges the just-completed tool call
+  `succession worker drain` process LLM-judges the just-completed tool call
   against active cards and writes verdict observations.
 - **Stop-time reconcile** — at session Stop, pure detectors check for
   contradictions (tier conflicts, pairwise opposites, orphan archetypes); a
@@ -62,16 +62,26 @@ atomically.
 
 ## Install
 
-Requires [babashka](https://github.com/babashka/babashka):
+Requires [babashka](https://github.com/babashka/babashka) and
+[bbin](https://github.com/babashka/bbin):
 
 ```bash
 bash < <(curl -s https://raw.githubusercontent.com/babashka/babashka/master/install)
+bash < <(curl -s https://raw.githubusercontent.com/babashka/bbin/master/install)
 ```
 
-In the target project:
+Install the `succession` binary:
 
 ```bash
-bb -cp /path/to/agent-lineage-evolution/bb/src -m succession.core install
+git clone https://github.com/danieltanfh95/agent-lineage-evolution
+cd agent-lineage-evolution
+bbin install .
+```
+
+Then in any project you want to instrument:
+
+```bash
+succession install
 ```
 
 This writes (all idempotent):
@@ -82,45 +92,46 @@ This writes (all idempotent):
 - `.succession/identity/promoted/{principle,rule,ethic}/` — empty card tiers
 - `.succession/{observations,staging,archive,contradictions,judge}/`
 - `.claude/settings.local.json` hook entries for all six Claude Code events,
-  pointing at `bb -cp "$CLAUDE_PROJECT_DIR/bb/src" -m succession.core hook <event>`
-  (preserves any existing non-Succession hooks)
+  using `succession hook <event>` (preserves any existing non-Succession hooks)
 
 Migrate old rule-cascade YAML files into cards:
 
 ```bash
-bb -m succession.core import .succession/rules
+succession import .succession/rules
 ```
 
 ## CLI
 
 ```bash
-bb -m succession.core consult "<situation>"   # reflective self-consult
-bb -m succession.core replay <transcript>     # re-run hooks over a jsonl
-bb -m succession.core config validate         # check config.edn
-bb -m succession.core identity-diff           # diff promoted vs archive snapshot
-bb -m succession.core show                    # print live promoted identity
-bb -m succession.core queue <op>              # inspect/recover async job queue
+succession consult "<situation>"   # reflective self-consult
+succession replay <transcript>     # re-run hooks over a jsonl
+succession config validate         # check config.edn
+succession identity-diff           # diff promoted vs archive snapshot
+succession show                    # print live promoted identity
+succession queue <op>              # inspect/recover async job queue
+succession compact                 # manually promote staged deltas
+succession staging <op>            # inspect/prune staging directories
+succession bench                   # judge regression/cost/latency bench
 ```
 
 ## Directory layout
 
 ```
-bb/
-  bb.edn
-  src/succession/
-    core.clj              # entry dispatcher (hooks + CLI subcommands)
-    config.clj            # default config
-    domain/               # pure: card, observation, weight, tier, reconcile,
-                          #        consult, render, salience, rollup
-    store/                # disk I/O: cards, observations, staging, sessions,
-                          #           archive, contradictions, jobs, locks, paths
-    domain/queue.clj      # pure: sort-jobs, idle?, job->result
-    llm/                  # LLM I/O: judge, extract, reconcile, claude
-    hook/                 # six Claude Code hook entry points
-    worker/drain.clj      # async job-queue drain worker (core.async pipeline)
-    cli/                  # consult, replay, config-validate, install,
-                          #   identity-diff, import
-  test/succession/        # 171 tests, 469 assertions
+bb.edn
+src/succession/
+  core.clj              # entry dispatcher (hooks + CLI subcommands)
+  config.clj            # default config
+  domain/               # pure: card, observation, weight, tier, reconcile,
+                        #        consult, render, salience, rollup
+  store/                # disk I/O: cards, observations, staging, sessions,
+                        #           archive, contradictions, jobs, locks, paths
+  domain/queue.clj      # pure: sort-jobs, idle?, job->result
+  llm/                  # LLM I/O: judge, extract, reconcile, claude
+  hook/                 # six Claude Code hook entry points
+  worker/drain.clj      # async job-queue drain worker (core.async pipeline)
+  cli/                  # consult, replay, config-validate, install,
+                        #   identity-diff, import
+test/succession/        # 171 tests, 469 assertions
 docs/
   MANUAL.md               # every CLI command, flag, and hook contract
   ARCHITECTURE.md         # layers, weight formula, data flow
