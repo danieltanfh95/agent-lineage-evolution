@@ -127,6 +127,30 @@
              (project-root) (cons op rest-args))
             0))
 
+      "status"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.status/run)
+             (project-root) rest-args)
+            0))
+
+      "observations"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.observations/run)
+             (project-root) (cons op rest-args))
+            0))
+
+      "contradictions"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.contradictions/run)
+             (project-root) (cons op rest-args))
+            0))
+
+      "archive"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.archive/run)
+             (project-root) (cons op rest-args))
+            0))
+
       "statusline"
       (System/exit
         (or ((requiring-resolve 'succession.cli.statusline/run)

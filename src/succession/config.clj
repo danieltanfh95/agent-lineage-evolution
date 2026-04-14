@@ -112,6 +112,11 @@
     :scan-interval-ms      500  ; jobs-dir poll interval
     :dead-letter-enabled   true}
 
+   ;; --- Worker log verbosity ---
+   ;; :debug restores all scanner/tick lines (fires every 500ms when idle).
+   ;; :info (default) suppresses debug noise while keeping all meaningful events.
+   :worker/log-level :info
+
    ;; --- Four knowledge categories (whitepaper §3.3.3) ---
    :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]})
 
@@ -172,4 +177,7 @@
                  :heartbeat-seconds :scan-interval-ms]]
         (when-not (and (number? (get w k)) (pos? (get w k)))
           (swap! problems conj (problem [:worker/async k] "must be a positive number")))))
+    (when-let [ll (:worker/log-level config)]
+      (when-not (contains? #{:debug :info :warn :error} ll)
+        (swap! problems conj (problem [:worker/log-level] "must be one of :debug :info :warn :error"))))
     (seq @problems)))

@@ -20,7 +20,11 @@ turns about the same thing.
   consult          Query your identity cards against a situation
   show             Display current identity cards
   compact          Compact staging deltas into the card store
+  status           Dashboard overview of the whole .succession/ folder
   staging          Inspect or prune the staging area
+  observations     Inspect or prune observation files  (status | prune --older-than Nd)
+  contradictions   Inspect or clear contradictions  (list | clear-resolved [--older-than Nd])
+  archive          Inspect or prune archive snapshots  (list | prune --keep-last N)
   queue            Inspect the async judge queue
   worker           Manage the drain worker  (drain | logs [--follow])
   identity-diff    Diff two archived identity snapshots  (--last | --list)

@@ -125,7 +125,6 @@
   []
   (str/replace (str (java.time.Instant/now)) #"\.\d+Z$" "Z"))
 
-
 (defn- kw->str
   "Convert a keyword to its full string form, including namespace if present.
    :worker/start → \"worker/start\", :pending → \"pending\"."
@@ -134,12 +133,17 @@
     (str (namespace k) "/" (name k))
     (name k)))
 
-(defn- log!
-  "Append one structured line to `log-path`. Format:
-     <ts> [LEVEL] event key=val key=val ...
+(def ^:private level-rank
+  "Numeric rank for log levels. Used to gate writes below the configured minimum."
+  {:debug 0 :info 1 :warn 2 :error 3})
+
+(defn- write-log!
+  "Append one structured line to `log-path`. `kvs` is a flat seq of
+   key/value pairs (not variadic — callers collect & then pass).
+   Format: <ts> [LEVEL] event key=val key=val ...
    Spit failure is silently swallowed — log failure must never crash
    the worker."
-  [log-path level event & kvs]
+  [log-path level event kvs]
   (let [kv-str (when (seq kvs)
                  (str " " (str/join " " (map (fn [[k v]] (str (kw->str k) "=" v))
                                              (partition 2 kvs)))))
@@ -199,8 +203,11 @@
 
    Returns nil when there is nothing pending, the claim lost a race,
    or the circuit-breaker tripped (in which case the job has already
-   been moved to dead-letter so the next tick picks the following job)."
-  [project-root wcfg log-path]
+   been moved to dead-letter so the next tick picks the following job).
+
+   `log!` is a level-gated closure over the log path — signature
+   `[level event & kvs]`."
+  [project-root wcfg log!]
   (when-let [head (first (queue/sort-jobs (store-jobs/list-pending project-root)))]
     (let [fname      (:job/filename head)
           claim-path (store-jobs/claim! project-root fname)]
@@ -214,7 +221,7 @@
               max-hour (or (:max-attempts-per-hour wcfg) 5)]
           (cond
             (>= attempts max-life)
-            (do (log! log-path :error :job/circuit-break
+            (do (log! :error :job/circuit-break
                       :job fname :reason "lifetime-limit" :attempts attempts)
                 (store-jobs/dead-letter!
                   project-root fname
@@ -224,7 +231,7 @@
                 nil)
 
             (>= recent max-hour)
-            (do (log! log-path :error :job/circuit-break
+            (do (log! :error :job/circuit-break
                       :job fname :reason "hourly-limit" :recent recent)
                 (store-jobs/dead-letter!
                   project-root fname
@@ -241,34 +248,37 @@
    `jobs-chan`. Exits when `stop?` flips true. A successful claim
    resets `last-activity!`. Circuit-breaker violations are routed to
    dead-letter inside `scan-and-claim!` and appear as a nil return,
-   so the scanner immediately tries the next job."
+   so the scanner immediately tries the next job.
+
+   `log!` is a level-gated closure — signature `[level event & kvs]`."
   [project-root jobs-chan ^clojure.lang.Atom stop?
-   ^clojure.lang.Atom last-activity! wcfg log-path]
+   ^clojure.lang.Atom last-activity! wcfg log!]
   (a/thread
     (try
       (let [scan-interval-ms (:scan-interval-ms wcfg)]
         (loop []
           (when-not @stop?
-            (if-let [job (scan-and-claim! project-root wcfg log-path)]
+            (if-let [job (scan-and-claim! project-root wcfg log!)]
               (do
-                (log! log-path :info :scanner/claimed
+                (log! :info :scanner/claimed
                       :job (:job/filename job) :type (:job/type job))
                 (reset! last-activity! (now-date))
                 (when-not (a/>!! jobs-chan job)
                   ;; channel was closed under us — exit cleanly
                   (reset! stop? true)))
               (do
-                (log! log-path :debug :scanner/tick
+                (log! :debug :scanner/tick
                       :pending (store-jobs/count-pending project-root) :claimed "nil")
                 (Thread/sleep (long scan-interval-ms))))
             (when-not @stop? (recur)))))
       (catch Throwable t
-        (log! log-path :error :scanner/error
+        (log! :error :scanner/error
               :class (.getName (class t))
               :msg (or (.getMessage t) ""))))))
 
 (defn- start-heartbeat!
-  [lock-handle ^clojure.lang.Atom stop? heartbeat-seconds log-path]
+  "`log!` is a level-gated closure — signature `[level event & kvs]`."
+  [lock-handle ^clojure.lang.Atom stop? heartbeat-seconds log!]
   (a/thread
     (try
       (loop []
@@ -277,7 +287,7 @@
           (locks/heartbeat! lock-handle)
           (when-not @stop? (recur))))
       (catch Throwable t
-        (log! log-path :error :heartbeat/error
+        (log! :error :heartbeat/error
               :class (.getName (class t))
               :msg (or (.getMessage t) ""))))))
 
@@ -291,9 +301,11 @@
    This recovers jobs orphaned by timed-out futures (where
    `future-cancel` may not have interrupted the handler thread) and
    ensures `inflight-count` eventually drops to 0 so the idle
-   predicate can fire."
+   predicate can fire.
+
+   `log!` is a level-gated closure — signature `[level event & kvs]`."
   [project-root jobs-chan ^clojure.lang.Atom stop?
-   ^clojure.lang.Atom last-activity! wcfg log-path]
+   ^clojure.lang.Atom last-activity! wcfg log!]
   (a/thread
     (try
       (let [{:keys [scan-interval-ms]} wcfg]
@@ -318,14 +330,14 @@
                 (reset! last-activity! (:queue/now snapshot)))
               (if (queue/idle? snapshot wcfg)
                 (do
-                  (log! log-path :info :idle/fire
+                  (log! :info :idle/fire
                         :pending (:queue/pending-count snapshot)
                         :inflight (:queue/inflight-count snapshot))
                   (reset! stop? true)
                   (a/close! jobs-chan))
                 (recur))))))
       (catch Throwable t
-        (log! log-path :error :idle/watcher-error
+        (log! :error :idle/watcher-error
               :class (.getName (class t))
               :msg (or (.getMessage t) ""))))))
 
@@ -342,7 +354,7 @@
    Babashka threading deadlock: the future's thread pool saturated when
    every pipeline worker was simultaneously waiting on a slow
    subprocess, preventing `deref` from ever unblocking."
-  [handle-fn job _log-path]
+  [handle-fn job _log!]
   (let [started (now-date)]
     (try
       (let [side-fx  (handle-fn job)
@@ -355,8 +367,10 @@
 (defn- drain-results!
   "Read every result off `results-chan`, route :ok → complete! and
    :error → dead-letter!. Blocks until the channel closes (which
-   happens after `pipeline-blocking` sees its input close)."
-  [project-root results-chan log-path]
+   happens after `pipeline-blocking` sees its input close).
+
+   `log!` is a level-gated closure — signature `[level event & kvs]`."
+  [project-root results-chan log!]
   (loop []
     (when-let [result (a/<!! results-chan)]
       (let [fname       (:result/job-filename result)
@@ -368,14 +382,14 @@
         (case (queue/classify-result result)
           :ok
           (do
-            (log! log-path :info :job/complete
+            (log! :info :job/complete
                   :job fname :duration (str duration-ms "ms"))
             (store-jobs/complete! project-root fname))
           :error
           (let [err (:result/error result)
                 ex  (ex-info (or (:message err) "handler error")
                              {:class (:class err)})]
-            (log! log-path :error :job/error
+            (log! :error :job/error
                   :job fname
                   :class (or (:class err) "")
                   :msg (or (:message err) ""))
@@ -415,7 +429,12 @@
 
        :else
        (let [log-path       (paths/jobs-worker-log project-root)
-             _              (log! log-path :info :worker/start
+             min-level      (get cfg :worker/log-level :info)
+             log!           (fn [level event & kvs]
+                              (when (>= (get level-rank level 1)
+                                        (get level-rank min-level 1))
+                                (write-log! log-path level event kvs)))
+             _              (log! :info :worker/start
                                   :parallelism (:parallelism wcfg))
              _              (store-jobs/sweep-stale-inflight! project-root
                                                               (:stale-lock-seconds wcfg))
@@ -425,21 +444,21 @@
              last-activity! (atom (now-date))
              real-handler   (fn [job] (handle-job! job cfg))
              effective      (or handle-fn real-handler)
-             xform          (map (fn [job] (process-one effective job log-path)))
+             xform          (map (fn [job] (process-one effective job log!)))
              _pipe          (a/pipeline-blocking
                               (:parallelism wcfg)
                               results-chan
                               xform
                               jobs-chan)
              _scanner       (start-scanner! project-root jobs-chan stop?
-                                            last-activity! wcfg log-path)
+                                            last-activity! wcfg log!)
              _idle          (start-idle-watcher! project-root jobs-chan stop?
-                                                 last-activity! wcfg log-path)
-             _hb            (start-heartbeat! lock stop? (:heartbeat-seconds wcfg) log-path)]
+                                                 last-activity! wcfg log!)
+             _hb            (start-heartbeat! lock stop? (:heartbeat-seconds wcfg) log!)]
          (try
-           (drain-results! project-root results-chan log-path)
+           (drain-results! project-root results-chan log!)
            0
            (finally
-             (log! log-path :info :worker/exit)
+             (log! :info :worker/exit)
              (reset! stop? true)
              (locks/release! lock))))))))
