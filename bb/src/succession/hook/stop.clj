@@ -49,14 +49,20 @@
 (defn run-pure-reconcile!
   "Core pure pass, extracted for tests. Loads observations, runs
    detectors, writes contradictions + staging deltas. Returns the seq
-   of contradictions found."
+   of truly-new contradictions written (existing open (card-id, category)
+   pairs are skipped to prevent unbounded accumulation)."
   [project-root session now config]
-  (let [cards       (store-cards/load-all-cards project-root)
-        all-obs     (store-obs/load-all-observations project-root)
-        obs-by-card (store-obs/observations-by-card all-obs)
-        metrics     (metrics-by-card cards obs-by-card now config)
-        found       (reconcile/detect-all cards obs-by-card metrics now config)]
-    (doseq [c found]
+  (let [cards         (store-cards/load-all-cards project-root)
+        all-obs       (store-obs/load-all-observations project-root)
+        obs-by-card   (store-obs/observations-by-card all-obs)
+        metrics       (metrics-by-card cards obs-by-card now config)
+        open-existing (store-contra/open-contradictions project-root)
+        open-key      (fn [c] [(get-in c [:contradiction/between 0 :card/id])
+                                (:contradiction/category c)])
+        open-keys     (into #{} (map open-key) open-existing)
+        found         (reconcile/detect-all cards obs-by-card metrics now config)
+        truly-new     (remove #(open-keys (open-key %)) found)]
+    (doseq [c truly-new]
       (store-contra/write-contradiction! project-root c)
       (store-contra/append-to-session-log! project-root session c)
       (store-staging/append-delta!
@@ -70,7 +76,7 @@
                      :contradiction/category (:contradiction/category c)}
            :source  :reconcile})))
     (store-staging/rematerialize! project-root session)
-    found))
+    truly-new))
 
 ;; ------------------------------------------------------------------
 ;; Public entry

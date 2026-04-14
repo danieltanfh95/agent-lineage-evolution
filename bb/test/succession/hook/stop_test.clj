@@ -49,6 +49,40 @@
       ;; so just assert: no self-contradictory was produced.
       (is (not (some #(= :self-contradictory (:contradiction/category %)) found))))))
 
+(deftest dedup-skips-existing-open-contradiction-test
+  (testing "run-pure-reconcile! does not write a second contradiction when an open (card-id, category) record already exists"
+    (let [card-id "c-dedup"]
+      (store-cards/write-card! *root*
+        (h/a-card {:id card-id :tier :rule :text "dedup test card"}))
+      (store-obs/write-observation! *root*
+        (h/an-observation {:id "o-d1" :at now :session "sess-dedup"
+                           :card-id card-id :kind :confirmed}))
+      (store-obs/write-observation! *root*
+        (h/an-observation {:id "o-d2" :at now :session "sess-dedup"
+                           :card-id card-id :kind :violated}))
+      ;; Pre-write an open contradiction for (card-id, :self-contradictory)
+      (store-contra/write-contradiction! *root*
+        {:succession/entity-type    :contradiction
+         :contradiction/id          (str "c-self-" card-id "-sess-prior")
+         :contradiction/at          now
+         :contradiction/session     "sess-prior"
+         :contradiction/category    :self-contradictory
+         :contradiction/between     [{:card/id card-id}]
+         :contradiction/detector    :pure
+         :contradiction/resolution  nil
+         :contradiction/resolved-at nil
+         :contradiction/resolved-by nil
+         :contradiction/escalated?  false})
+      (let [truly-new   (stop/run-pure-reconcile! *root* "sess-dedup" now config/default-config)
+            all-contras (store-contra/load-all-contradictions *root*)
+            self-for-card (filter #(and (= card-id (get-in % [:contradiction/between 0 :card/id]))
+                                        (= :self-contradictory (:contradiction/category %)))
+                                  all-contras)]
+        ;; The duplicate was filtered — not in the return value
+        (is (not (some #(= :self-contradictory (:contradiction/category %)) truly-new)))
+        ;; Still only the original file on disk — no second record written
+        (is (= 1 (count self-for-card)))))))
+
 (deftest staging-snapshot-rematerialized-test
   (testing "Stop rematerializes the staging snapshot so consult sees the new deltas"
     (store-cards/write-card! *root*
