@@ -14,6 +14,7 @@
         store's live directories.
      5. `.claude/settings.local.json` hook entries for all six events,
         using `succession hook <event>` (requires bbin-installed binary).
+        Pass `--global` to write to `~/.claude/settings.json` instead.
 
    Idempotent: every step refuses to overwrite an existing file/entry.
    Running `install` on a project that already has some steps applied
@@ -24,8 +25,8 @@
    (skill installation path)."
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
-            [clojure.string :as str]
             [succession.cli.config-validate :as config-cli]
+            [succession.store.cards :as cards]
             [succession.store.paths :as paths]))
 
 ;; ------------------------------------------------------------------
@@ -85,15 +86,33 @@ performance metric.
 (defn build-hook-entries
   "Pure: produce the hooks section of a settings.json for these six
    events. Shape matches Claude Code's schema: each event name maps to
-   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`."
+   a vector of `{:matcher ... :hooks [{:type \"command\" :command ...}]}`.
+
+   Keys are keywords so they match what `json/parse-string` with `true`
+   produces when reading an existing settings file — required for
+   `merge-hook-entries` to find existing entries by key."
   []
   (into {}
         (map (fn [[event-name sub]]
-               [event-name
+               [(keyword event-name)
                 [{:matcher ""
                   :hooks   [{:type    "command"
                              :command (hook-command sub)}]}]]))
         hook-events))
+
+;; ------------------------------------------------------------------
+;; Starter card resources
+;;
+;; Classpath resource dirs are not enumerable, so we keep an explicit
+;; list. Each entry is a classpath-relative resource path; the card's
+;; tier and id are read from the file's own frontmatter.
+;; ------------------------------------------------------------------
+
+(def ^:private starter-card-resources
+  ["starter-cards/verify-via-repl.md"
+   "starter-cards/data-first-design.md"
+   "starter-cards/infinite-context.md"
+   "starter-cards/judge-conscience-framing.md"])
 
 ;; ------------------------------------------------------------------
 ;; Atomic-ish step runners
@@ -201,29 +220,41 @@ performance metric.
                                  :command (statusline-command)})))
 
 (defn install-settings!
-  "Update `.claude/settings.local.json` to wire all six Succession hooks
-   and the statusline command. Creates the file if missing. Preserves any
-   existing non-Succession hooks and any other top-level keys."
-  [project-root]
-  (let [path     (.getPath (io/file project-root ".claude" "settings.local.json"))
-        existing (or (read-json-if-exists path) {})
-        already? (some (fn [[_ entries]]
-                         (some (fn [entry]
-                                 (some (fn [h]
-                                         (or (str/includes? (:command h "")
-                                                            "succession hook")
-                                             (str/includes? (:command h "")
-                                                            "succession.core hook")))
-                                       (:hooks entry)))
-                               entries))
-                       (:hooks existing))
+  "Update a Claude Code settings JSON file to wire all six Succession
+   hooks and the statusline command. Creates the file if missing.
+   Preserves any existing non-Succession hooks and any other top-level
+   keys.
+
+   `settings-path` is the absolute path to the target settings file —
+   typically `.claude/settings.local.json` for per-project installs or
+   `~/.claude/settings.json` for global installs (`--global`)."
+  [settings-path]
+  (let [existing (or (read-json-if-exists settings-path) {})
         merged   (-> (merge-hook-entries existing (build-hook-entries))
                      (merge-statusline))]
-    (if already?
-      {:step :settings :status :skipped :path path :reason "succession hooks already wired"}
-      (do (io/make-parents (io/file path))
-          (spit path (json/generate-string merged {:pretty true}))
-          {:step :settings :status :ok :path path}))))
+    (if (= merged existing)
+      {:step :settings :status :skipped :path settings-path :reason "succession hooks already wired"}
+      (do (io/make-parents (io/file settings-path))
+          (spit settings-path (json/generate-string merged {:pretty true}))
+          {:step :settings :status :ok :path settings-path}))))
+
+(defn install-starter-pack!
+  "Copy bundled starter cards from the classpath into the project's
+   identity store. Each card is written to the tier directory declared
+   in its own frontmatter. Idempotent — skips cards whose destination
+   file already exists."
+  [project-root]
+  (mapv (fn [resource-name]
+          (if-let [url (io/resource resource-name)]
+            (let [card (cards/read-card url)
+                  dest (paths/card-file project-root (:card/tier card) (:card/id card))]
+              (if (.exists (io/file dest))
+                {:step :starter-card :status :skipped :path dest :reason "exists"}
+                (do (cards/write-card! project-root card)
+                    {:step :starter-card :status :ok :path dest})))
+            {:step :starter-card :status :error
+             :path resource-name :reason "resource not found on classpath"}))
+        starter-card-resources))
 
 ;; ------------------------------------------------------------------
 ;; Top-level runner
@@ -241,22 +272,34 @@ performance metric.
                          ""))))))
 
 (defn run
-  [project-root _args]
-  (println "installing succession at" project-root)
-  (let [results (concat
-                  [(install-skill!  project-root)
-                   (install-config! project-root)]
-                  (install-store-dirs! project-root)
-                  [(install-settings! project-root)])
-        ok?     (every? #(contains? #{:ok :skipped} (:status %)) results)]
-    (print-report! results)
-    (println)
-    (println (if ok? "install complete." "install finished with errors."))
-    (when ok?
+  [project-root args]
+  (let [;; --local is an explicit alias for the default per-project mode
+        global?       (some #{"--global"} args)
+        starter-pack? (some #{"--starter-pack"} args)
+        settings-path (if global?
+                        (str (System/getProperty "user.home") "/.claude/settings.json")
+                        (.getPath (io/file project-root ".claude" "settings.local.json")))]
+    (println (if global?
+               (str "installing hooks globally at " settings-path)
+               (str "installing succession at " project-root)))
+    (let [results (concat
+                    (when-not global?
+                      [(install-skill!  project-root)
+                       (install-config! project-root)])
+                    (when-not global?
+                      (install-store-dirs! project-root))
+                    [(install-settings! settings-path)]
+                    (when starter-pack?
+                      (install-starter-pack! project-root)))
+          ok?     (every? #(contains? #{:ok :skipped} (:status %)) results)]
+      (print-report! results)
       (println)
-      (println "Next steps:")
-      (println "  1. Open a Claude Code session — hooks fire automatically, no manual steps.")
-      (println "  2. Run 'succession show' to see your identity cards accumulate.")
-      (println "  3. Run 'succession queue status' to check the async judge queue.")
-      (println "  4. Run 'succession config validate' to verify your config."))
-    (System/exit (if ok? 0 1))))
+      (println (if ok? "install complete." "install finished with errors."))
+      (when (and ok? (not global?))
+        (println)
+        (println "Next steps:")
+        (println "  1. Open a Claude Code session — hooks fire automatically, no manual steps.")
+        (println "  2. Run 'succession show' to see your identity cards accumulate.")
+        (println "  3. Run 'succession queue status' to check the async judge queue.")
+        (println "  4. Run 'succession config validate' to verify your config."))
+      (System/exit (if ok? 0 1)))))

@@ -86,7 +86,11 @@
     "                                  :n-tool-calls 20}\n"
     "\n"
     " ;; --- Whitepaper §3.3.3 knowledge categories ---\n"
-    " :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]}\n"))
+    " :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]\n"
+    "\n"
+    " ;; --- Auto-install starter cards on first session ---\n"
+    " ;; Set to false to skip seeding the identity store on first auto-init.\n"
+    " :auto-install/starter-pack true}\n"))
 
 (defn- check-hook-paths [project-root]
   (let [settings-file (str project-root "/.claude/settings.local.json")]

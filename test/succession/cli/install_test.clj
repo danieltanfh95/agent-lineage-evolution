@@ -4,8 +4,8 @@
 
 (deftest build-hook-entries-covers-six-events-test
   (let [entries (install/build-hook-entries)]
-    (is (= #{"SessionStart" "UserPromptSubmit" "PreToolUse"
-             "PostToolUse" "Stop" "PreCompact"}
+    (is (= #{:SessionStart :UserPromptSubmit :PreToolUse
+             :PostToolUse :Stop :PreCompact}
            (set (keys entries))))
     (doseq [[_ v] entries]
       (is (vector? v))
@@ -15,11 +15,11 @@
 
 (deftest merge-hook-entries-preserves-existing-test
   (testing "non-succession hooks in other events survive"
-    (let [existing {:hooks {"SessionStart"
+    (let [existing {:hooks {:SessionStart
                             [{:matcher "" :hooks [{:type "command"
                                                    :command "my-other-tool.sh"}]}]}}
           merged   (install/merge-hook-entries existing (install/build-hook-entries))
-          ss       (get-in merged [:hooks "SessionStart"])]
+          ss       (get-in merged [:hooks :SessionStart])]
       (is (some (fn [e] (some #(= "my-other-tool.sh" (:command %)) (:hooks e))) ss))
       (is (some (fn [e] (some #(re-find #"succession hook" (:command %))
                               (:hooks e))) ss)))))
