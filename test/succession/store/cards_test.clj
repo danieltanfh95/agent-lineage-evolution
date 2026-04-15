@@ -25,7 +25,7 @@
       (is (= (:card/category c)  (:card/category back)))
       (is (= (:card/text c)      (:card/text back)))
       (is (= (:card/provenance c)
-             (dissoc (:card/provenance back) nil))))))
+             (:card/provenance back))))))
 
 (deftest round-trip-rich-card-test
   (testing "tags and fingerprint survive round-trip"

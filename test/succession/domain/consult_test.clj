@@ -74,8 +74,8 @@
                    cfg)]
       (is (<= (count (:consult/candidates result))
               (get-in cfg [:salience/profile :top-k])))
-      (is (map? (:consult/by-tier result)))
-      (is (map? (:consult/by-category result)))
+      (is (= #{:rule} (set (keys (:consult/by-tier result)))))
+      (is (pos? (count (get (:consult/by-tier result) :rule))))
       (is (= (get-in cfg [:salience/profile :top-k])
              (:consult/top-k result))))))
 

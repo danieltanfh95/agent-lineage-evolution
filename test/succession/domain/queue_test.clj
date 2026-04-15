@@ -1,5 +1,6 @@
 (ns succession.domain.queue-test
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [succession.domain.queue :as queue])
   (:import (java.util Date)))
 
@@ -76,3 +77,10 @@
 
 (deftest format-throwable-trace-nil-safe-test
   (is (nil? (queue/format-throwable-trace nil))))
+
+(deftest format-throwable-trace-non-nil-test
+  (let [ex    (ex-info "boom" {})
+        trace (queue/format-throwable-trace ex)]
+    (is (string? trace))
+    (is (not (str/blank? trace)))
+    (is (.contains ^String trace "boom"))))

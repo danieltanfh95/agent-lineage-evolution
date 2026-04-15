@@ -29,6 +29,7 @@
    operator question."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [succession.cli.common :as cli-common]
             [succession.store.jobs :as store-jobs]
             [succession.store.paths :as paths]))
 
@@ -148,20 +149,6 @@
 ;; clear-dead
 ;; ------------------------------------------------------------------
 
-(defn- parse-duration
-  "Parse a simple duration string like `7d`, `12h`, `30m` into
-   milliseconds. Returns nil on parse failure so the caller can exit
-   with a usage error."
-  [s]
-  (when (and s (re-matches #"^(\d+)([smhd])$" s))
-    (let [[_ n unit] (re-matches #"^(\d+)([smhd])$" s)
-          n (Long/parseLong n)]
-      (* n (case unit
-             "s" 1000
-             "m" (* 60 1000)
-             "h" (* 60 60 1000)
-             "d" (* 24 60 60 1000))))))
-
 (defn run-clear-dead
   "`queue clear-dead` — dry-run list of dead pairs to clear.
    `queue clear-dead --confirm` — actually delete.
@@ -171,7 +158,7 @@
         confirm?  (boolean (some #{"--confirm"} args))
         rest-args (vec (remove #{"--confirm"} args))
         older     (when (= (first rest-args) "--older-than")
-                    (parse-duration (second rest-args)))]
+                    (cli-common/parse-duration (second rest-args)))]
     (if (and (= (first rest-args) "--older-than") (nil? older))
       (err! "usage: succession queue clear-dead [--older-than <N(s|m|h|d)>] [--confirm]")
       (let [all      (store-jobs/list-dead project-root)

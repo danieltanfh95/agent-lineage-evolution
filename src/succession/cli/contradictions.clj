@@ -13,6 +13,7 @@
        Dry-run by default; add --confirm to execute."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [succession.cli.common :as cli-common]
             [succession.store.contradictions :as store-contras]
             [succession.store.paths :as paths]))
 
@@ -23,18 +24,6 @@
 (defn- err! [msg]
   (binding [*out* *err*] (println msg))
   1)
-
-(defn- parse-duration
-  "Parse `7d`, `12h`, `30m`, `90s` → milliseconds. Returns nil on failure."
-  [s]
-  (when (and s (re-matches #"^(\d+)([smhd])$" s))
-    (let [[_ n unit] (re-matches #"^(\d+)([smhd])$" s)
-          n (Long/parseLong n)]
-      (* n (case unit
-             "s" 1000
-             "m" (* 60 1000)
-             "h" (* 3600 1000)
-             "d" (* 86400 1000))))))
 
 (defn- format-date [inst]
   (when inst
@@ -83,7 +72,7 @@
   (let [args     (vec args)
         confirm? (some #{"--confirm"} args)
         older-ms (when (= "--older-than" (first args))
-                   (parse-duration (second args)))]
+                   (cli-common/parse-duration (second args)))]
     (when (and (= "--older-than" (first args)) (nil? older-ms))
       (err! "usage: succession contradictions clear-resolved [--older-than N(s|m|h|d)] [--confirm]"))
     (let [all      (store-contras/load-all-contradictions project-root)

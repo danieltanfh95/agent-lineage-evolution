@@ -12,7 +12,8 @@
    pipeline — deltas are discarded without being applied to canonical
    identity. Use this when old sessions contain stale or invalid deltas
    you explicitly do not want promoted."
-  (:require [succession.store.staging :as store-staging]))
+  (:require [succession.cli.common :as cli-common]
+            [succession.store.staging :as store-staging]))
 
 ;; ------------------------------------------------------------------
 ;; Helpers
@@ -22,19 +23,6 @@
   [msg]
   (binding [*out* *err*] (println msg))
   1)
-
-(defn- parse-duration
-  "Parse a simple duration string like `7d`, `12h`, `30m`, `90s` into
-   milliseconds. Returns nil on parse failure."
-  [s]
-  (when (and s (re-matches #"^(\d+)([smhd])$" s))
-    (let [[_ n unit] (re-matches #"^(\d+)([smhd])$" s)
-          n (Long/parseLong n)]
-      (* n (case unit
-             "s" 1000
-             "m" (* 60 1000)
-             "h" (* 60 60 1000)
-             "d" (* 24 60 60 1000))))))
 
 (defn- format-date
   [mtime]
@@ -95,7 +83,7 @@
 
       (= (first rest-args) "--older-than")
       (let [dur-str (second rest-args)
-            dur     (parse-duration dur-str)]
+            dur     (cli-common/parse-duration dur-str)]
         (if (nil? dur)
           (err! "usage: succession staging prune --older-than <N(s|m|h|d)> [--confirm]")
           (let [sessions  (store-staging/list-sessions project-root)

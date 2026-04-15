@@ -98,7 +98,9 @@
   (testing "single object"
     (let [parsed (judge/parse-response
                    "{\"card_id\":\"c1\",\"kind\":\"confirmed\",\"confidence\":0.8}")]
-      (is (= 1 (count parsed)))))
+      (is (= 1 (count parsed)))
+      (is (= "c1" (:card-id (first parsed))))
+      (is (= :confirmed (:kind (first parsed))))))
   (testing "array of objects"
     (let [parsed (judge/parse-response
                    "[{\"card_id\":\"c1\",\"kind\":\"confirmed\",\"confidence\":0.8},
@@ -124,4 +126,8 @@
                :judge-model "claude-sonnet-4-6"})]
     (is (= 2 (count obs)))
     (is (= #{"c1" "c4"} (set (map :observation/card-id obs))))
-    (is (every? #(= :judge-verdict (:observation/source %)) obs))))
+    (is (every? #(= :judge-verdict (:observation/source %)) obs))
+    (let [obs-by-card (into {} (map (juxt :observation/card-id identity) obs))]
+      (is (= :confirmed (:observation/kind (obs-by-card "c1"))))
+      (is (= :violated  (:observation/kind (obs-by-card "c4"))))
+      (is (= "claude-sonnet-4-6" (:observation/judge-model (obs-by-card "c1")))))))

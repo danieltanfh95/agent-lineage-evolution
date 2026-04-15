@@ -12,16 +12,8 @@
    `ts` is an ISO-like filename-safe timestamp (same shape as
    observation filenames)."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
-            [succession.store.paths :as paths]))
-
-(defn- safe-ts [inst]
-  (-> (cond
-        (instance? java.util.Date inst) (.toInstant ^java.util.Date inst)
-        :else (java.time.Instant/now))
-      .toString
-      (str/replace ":" "-")
-      (str/replace "." "-")))
+            [succession.store.paths :as paths]
+            [succession.store.util :as store-util]))
 
 (defn- copy-tree!
   "Recursively copy a directory tree. Creates destination parents as
@@ -43,7 +35,7 @@
    overwrite. Callers supply `at` (java.util.Date) so the archive is
    deterministic for tests and replay."
   [project-root at]
-  (let [ts          (safe-ts at)
+  (let [ts          (store-util/safe-ts-string at)
         archive-dir (paths/archive-dir project-root ts)
         _           (paths/ensure-dir! archive-dir)
         src-tree    (io/file (paths/promoted-dir project-root))

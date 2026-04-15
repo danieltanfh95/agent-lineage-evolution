@@ -52,11 +52,6 @@
     \"confidence\":0.0-1.0,
     \"escalate\":true|false}")
 
-(def ^:private tier->label
-  {:principle "MANDATORY"
-   :rule      "MUST"
-   :ethic     "PREFERRED"})
-
 (defn- render-card-digest
   "Compact one-line-per-card rendering of the active cards. The digest
    goes into every judge prompt so the judge knows what to compare the
@@ -66,7 +61,7 @@
     "\n"
     (map (fn [c]
            (format "- [%s] %s — %s"
-                   (get tier->label (:card/tier c) "PREFERRED")
+                   (name (or (:card/tier c) :rule))
                    (:card/id c)
                    (first (str/split-lines (or (:card/text c) "")))))
          cards)))

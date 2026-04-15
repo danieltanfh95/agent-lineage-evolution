@@ -47,11 +47,19 @@ Every namespace used in the body must appear in `ns :require` with an alias.
 
 ---
 
-## 3. Don't reinvent shared utilities
+## 3. Extract duplicated private functions to a layer-scoped common/util namespace
 
-Before writing a reduce or accumulation loop, check `hook/common`, `domain/rollup`,
-and `domain/weight` for an existing implementation. If logic needs to be shared,
-make the private `defn-` public rather than duplicating it.
+When a `defn-` appears with the same logic in 2+ namespaces within the same layer,
+extract it to the appropriate shared namespace rather than duplicating it:
+
+- `cli/*` layer → `succession.cli.common` (`src/succession/cli/common.clj`)
+- `store/*` layer → `succession.store.util` (`src/succession/store/util.clj`)
+- `hook/*` layer → `succession.hook.common` (already exists)
+- `domain/*` layer → make the private fn public and require it from the other ns
+
+Before writing a new utility fn, check whether it already exists in one of these
+shared namespaces. The test: if deleting the private fn would require adding a
+require to another file, the fn belongs in a shared namespace.
 
 ---
 

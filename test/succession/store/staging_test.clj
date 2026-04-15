@@ -44,11 +44,15 @@
       (is (= 1 (get-in snap [:staging/observation-counts "c2"]))))))
 
 (deftest snapshot-persists-and-reads-back-test
-  (staging/append-delta! *root* "s1" (delta "d1" :create-card nil))
-  (staging/rematerialize! *root* "s1")
-  (let [snap (staging/read-snapshot *root* "s1")]
-    (is (some? snap))
-    (is (= 1 (count (:staging/created-cards snap))))))
+  (let [new-card (h/a-card {:id "new-card" :tier :rule})]
+    (staging/append-delta! *root* "s1"
+      (staging/make-delta {:id "d1" :at #inst "2026-04-11T12:00:00Z"
+                           :kind :create-card :payload new-card :source :judge}))
+    (staging/rematerialize! *root* "s1")
+    (let [snap (staging/read-snapshot *root* "s1")]
+      (is (some? snap))
+      (is (= 1 (count (:staging/created-cards snap))))
+      (is (= "new-card" (:card/id (first (:staging/created-cards snap))))))))
 
 (deftest make-delta-validates-test
   (testing "make-delta rejects unknown kinds"

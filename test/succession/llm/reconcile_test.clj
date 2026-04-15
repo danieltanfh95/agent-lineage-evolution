@@ -20,17 +20,19 @@
                   :provenance/born-from       :user-correction
                   :provenance/born-context    "ctx"}}))
 
-(defn- an-obs [id at kind]
-  (obs/make-observation
-    {:id id :at at :session "s1" :hook :post-tool-use
-     :source :judge-verdict :card-id "c1" :kind kind}))
+(defn- an-obs
+  ([id at kind] (an-obs id at kind "c1"))
+  ([id at kind card-id]
+   (obs/make-observation
+     {:id id :at at :session "s1" :hook :post-tool-use
+      :source :judge-verdict :card-id card-id :kind kind})))
 
 (deftest category-2-prompt-includes-both-cards-test
   (let [prompt (reconcile/build-category-2-prompt
                  {:card-a (a-card "ca" :rule)
                   :card-b (a-card "cb" :rule)
-                  :obs-a  [(an-obs "o1" #inst "2026-04-01T10:00:00Z" :confirmed)]
-                  :obs-b  [(an-obs "o2" #inst "2026-04-02T10:00:00Z" :confirmed)]})]
+                  :obs-a  [(an-obs "o1" #inst "2026-04-01T10:00:00Z" :confirmed "ca")]
+                  :obs-b  [(an-obs "o2" #inst "2026-04-02T10:00:00Z" :confirmed "cb")]})]
     (is (str/includes? prompt "ca"))
     (is (str/includes? prompt "cb"))
     (is (str/includes? prompt "scope-partition"))
@@ -98,4 +100,9 @@
                 :confidence 0.5 :rationale "" :payload {}}
                cfg))))
   (testing "nil resolution never auto-applicable"
-    (is (not (reconcile/auto-applicable? nil cfg)))))
+    (is (not (reconcile/auto-applicable? nil cfg))))
+  (testing "auto-applicable at exactly the threshold"
+    (is (reconcile/auto-applicable?
+          {:category :semantic-opposition :kind :scope-partition
+           :confidence 0.8 :rationale "" :payload {}}
+          cfg))))

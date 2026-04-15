@@ -13,6 +13,7 @@
        Dry-run by default; add --confirm to execute."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [succession.cli.common :as cli-common]
             [succession.store.observations :as store-obs]
             [succession.store.paths :as paths]))
 
@@ -23,18 +24,6 @@
 (defn- err! [msg]
   (binding [*out* *err*] (println msg))
   1)
-
-(defn- parse-duration
-  "Parse `7d`, `12h`, `30m`, `90s` → milliseconds. Returns nil on failure."
-  [s]
-  (when (and s (re-matches #"^(\d+)([smhd])$" s))
-    (let [[_ n unit] (re-matches #"^(\d+)([smhd])$" s)
-          n (Long/parseLong n)]
-      (* n (case unit
-             "s" 1000
-             "m" (* 60 1000)
-             "h" (* 60 60 1000)
-             "d" (* 24 60 60 1000))))))
 
 (defn- format-date [^long mtime]
   (.format (java.text.SimpleDateFormat. "yyyy-MM-dd")
@@ -95,7 +84,7 @@
     (cond
       (= (first args) "--older-than")
       (let [dur-str (second args)
-            dur     (parse-duration dur-str)]
+            dur     (cli-common/parse-duration dur-str)]
         (if (nil? dur)
           (err! "usage: succession observations prune --older-than <N(s|m|h|d)>")
           (let [confirm? (some #{"--confirm"} args)

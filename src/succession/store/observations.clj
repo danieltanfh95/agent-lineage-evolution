@@ -17,19 +17,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [succession.store.paths :as paths]))
-
-(defn- safe-ts-string
-  "Convert an inst into a filename-safe ISO-like string: no colons or
-   dots. e.g. `2026-04-11T12-34-56-789Z`."
-  [inst]
-  (-> (cond
-        (instance? java.util.Date inst)  (.toInstant ^java.util.Date inst)
-        (instance? java.time.Instant inst) inst
-        :else (java.time.Instant/now))
-      .toString
-      (str/replace ":" "-")
-      (str/replace "." "-")))
+            [succession.store.paths :as paths]
+            [succession.store.util :as store-util]))
 
 (defn write-observation!
   "Write one observation to its canonical file under the session dir.
@@ -37,7 +26,7 @@
    map directly (already constructed via `domain/observation/make-observation`)."
   [project-root observation]
   (let [session (:observation/session observation)
-        ts      (safe-ts-string (:observation/at observation))
+        ts      (store-util/safe-ts-string (:observation/at observation))
         uuid    (:observation/id observation)
         dir     (paths/observations-dir project-root session)
         _       (paths/ensure-dir! dir)
