@@ -148,12 +148,12 @@ archive under `.succession/archive/{ts}/promoted/…` before rewriting
 the live tree; `identity-diff` shows what changed.
 
 ```
-succession identity-diff <ts1> <ts2|current>
+succession identity-diff [list|last|<ts1> [ts2]]
 ```
 
-`ts1` and `ts2` are archive directory names (timestamp strings). `ts2`
-may be the literal `current` to diff the most recent archive against
-the live promoted tree.
+- **`list`** — Tabulate all archive snapshots (timestamp + card count), newest first.
+- **`last`** (default) — Diff the two most recent snapshots.
+- **`<ts1> [ts2]`** — Diff specific snapshots; `ts2` defaults to `"current"` (live promoted tree).
 
 Reports four change categories:
 
@@ -304,6 +304,28 @@ Exit 0 on success, 1 on lock acquisition failure or card-write error.
 
 Reference: `src/succession/hook/pre_compact.clj` (the same `promote!`
 function the hook calls; the CLI is a thin wrapper).
+
+### status
+
+Dashboard overview of the `.succession/` folder — card counts by tier, observation
+counts, archive count, contradiction counts, queue state, and staging session count.
+
+```
+succession status
+```
+
+Prints a single-screen summary of all succession state:
+
+- **Cards by tier** — count of promoted cards at each tier (principle / rule / ethic)
+- **Observations** — total raw observations on disk
+- **Archive** — number of archive snapshots
+- **Contradictions** — open vs resolved counts
+- **Queue** — pending / inflight / dead job counts and `.worker.lock` state
+- **Staging sessions** — count of staging session directories (including orphaned)
+
+Exit 0 on success.
+
+Reference: `src/succession/cli/status.clj`.
 
 ### staging
 

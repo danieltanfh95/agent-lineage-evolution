@@ -459,7 +459,7 @@ Configured via `:worker/async` in `.succession/config.edn`:
 
 | Key | Default | Effect |
 |-----|---------|--------|
-| `:idle-timeout-seconds` | 10 | worker exits after this long idle |
+| `:idle-timeout-seconds` | 30 | worker exits after this long idle |
 | `:parallelism` | 2 | concurrent `claude -p` cap |
 | `:stale-lock-seconds` | 60 | mtime older than this = dead worker |
 | `:heartbeat-seconds` | 20 | lock mtime refresh cadence |
@@ -480,7 +480,7 @@ CLAUDE.md produced **0**. The mechanism is Claude Code's internal
 `reorderAttachmentsForAPI`, which bubbles PostToolUse additionalContext to
 land adjacent to the most recent frame — inside the attention window where
 instructions still influence behavior at depth. The refresh gate's four tuned
-parameters (`integration-gap-turns: 2`, `cap-per-session: 5`,
-`byte-threshold: 200`, `cold-start-skip-turns: 1`) are imported unchanged
+parameters (`integration-gap-turns: 2`, `byte-threshold: 200`,
+`cold-start-skip-turns: 1`) are imported unchanged
 from the experiment. Full methodology and cell tables live in
 [docs/archive/succession-findings-2026.md](archive/succession-findings-2026.md).

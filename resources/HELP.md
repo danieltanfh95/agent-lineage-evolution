@@ -28,7 +28,10 @@ turns about the same thing.
   queue            Inspect the async judge queue
   worker           Manage the drain worker  (drain | logs [--follow])
   identity-diff    Diff two archived identity snapshots  (list | last | <ts1> [ts2])
-  config           Validate config.edn and hook paths
+  replay           Replay a session transcript through the identity cycle in a sandbox
+  import           One-shot migration from old `.succession/rules/*.md` YAML files
+  bench            Run judge regression / cost / latency benchmark
+  config           Validate, display, or write a starter config.edn  (validate | show | init)
   statusline       Emit the Claude Code status line fragment
   --install-skill  Write this document as .claude/skills/succession/SKILL.md
 
@@ -42,8 +45,17 @@ The Claude Code statusline fragment `succession: ✓N ✗N · judging N` shows:
 ## Install
 
 ```
-succession install
+succession install [--global | --local] [--starter-pack]
 ```
+
+- `--global` — write hooks to `~/.claude/settings.json` once. Per-project store
+  (`.succession/`) is created automatically on first SessionStart in each project —
+  no per-project install step needed.
+- `--local` — (default) write hooks to `.claude/settings.local.json` and create the
+  per-project store immediately in the current directory.
+- `--starter-pack` — seed the project store with 4 curated starter cards (verify-via-repl, data-first-design, infinite-context, judge-conscience-framing).
+
+  Starter cards are also seeded automatically on first SessionStart when `:auto-install/starter-pack true` (the default) is set in `config.edn`.
 
 Hooks fire automatically once installed — no manual worker start needed.
 Run `succession queue status` to inspect the async judge queue.
