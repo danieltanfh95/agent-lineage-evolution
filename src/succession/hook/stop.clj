@@ -96,7 +96,9 @@
         project-root cfg
         {:type    :llm-reconcile
          :session session
-         :payload {:triggered-at now}}))
+         :payload {:triggered-at now}})
+      (let [prune-ms (get cfg :staging/auto-prune-after-ms (* 60 60 1000))]
+        (store-staging/prune-sessions! project-root {:older-than-ms prune-ms})))
     (catch Throwable t
       (binding [*out* *err*]
         (println "succession stop error:" (.getMessage t)))))

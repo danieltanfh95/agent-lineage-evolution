@@ -31,11 +31,23 @@
       (.exists (io/file d ".git")) (.getPath d)
       :else (recur (.getParentFile d)))))
 
-(defn- project-root []
-  (let [cwd (or (System/getProperty "user.dir") ".")]
-    (or (System/getenv "CLAUDE_PROJECT_DIR")
-        (find-git-root cwd)
-        cwd)))
+(defn- extract-root
+  "Pull --root <path> out of args. Returns {:root path-or-nil :args cleaned-args}."
+  [args]
+  (let [v (vec args)
+        i (.indexOf v "--root")]
+    (if (and (>= i 0) (< (inc i) (count v)))
+      {:root (get v (inc i))
+       :args (into (subvec v 0 i) (subvec v (+ i 2)))}
+      {:root nil :args v})))
+
+(defn- project-root
+  ([]        (project-root nil))
+  ([explicit]
+   (or explicit
+       (System/getenv "CLAUDE_PROJECT_DIR")
+       (find-git-root (or (System/getProperty "user.dir") "."))
+       (or (System/getProperty "user.dir") "."))))
 
 (defn- load-help-text []
   (or (some-> (io/resource "HELP.md") slurp)
@@ -43,8 +55,10 @@
 
 (defn -main
   "Dispatch on first two args: mode (`hook` | cli subcommand-name) then op."
-  [& args]
-  (let [[mode op & rest-args] args]
+  [& raw-args]
+  (let [{:keys [root args]} (extract-root raw-args)
+        root                (project-root root)
+        [mode op & rest-args] args]
     (when (or (nil? mode) (contains? #{"--help" "-h" "help"} mode))
       (println (load-help-text))
       (System/exit 0))
@@ -75,86 +89,86 @@
       ;; `[project-root args]`. The dispatcher resolves project-root once.
       "consult"
       ((requiring-resolve 'succession.cli.consult/run)
-       (project-root) (cons op rest-args))
+       root (cons op rest-args))
 
       "replay"
       ((requiring-resolve 'succession.cli.replay/run)
-       (project-root) op)
+       root op)
 
       "config"
       ((requiring-resolve 'succession.cli.config-validate/run)
-       (project-root) (cons op rest-args))
+       root (cons op rest-args))
 
       "install"
       ((requiring-resolve 'succession.cli.install/run)
-       (project-root) (cons op rest-args))
+       root (cons op rest-args))
 
       "identity-diff"
       ((requiring-resolve 'succession.cli.identity-diff/run)
-       (project-root) (cons op rest-args))
+       root (cons op rest-args))
 
       "show"
       (System/exit
         (or ((requiring-resolve 'succession.cli.show/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "queue"
       (System/exit
         (or ((requiring-resolve 'succession.cli.queue/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "import"
       ((requiring-resolve 'succession.cli.import/run)
-       (project-root) (cons op rest-args))
+       root (cons op rest-args))
 
       "bench"
       (System/exit
         (or ((requiring-resolve 'succession.cli.bench/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "compact"
       (System/exit
         (or ((requiring-resolve 'succession.cli.compact/run)
-             (project-root) rest-args)
+             root rest-args)
             0))
 
       "staging"
       (System/exit
         (or ((requiring-resolve 'succession.cli.staging/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "status"
       (System/exit
         (or ((requiring-resolve 'succession.cli.status/run)
-             (project-root) rest-args)
+             root rest-args)
             0))
 
       "observations"
       (System/exit
         (or ((requiring-resolve 'succession.cli.observations/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "contradictions"
       (System/exit
         (or ((requiring-resolve 'succession.cli.contradictions/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "archive"
       (System/exit
         (or ((requiring-resolve 'succession.cli.archive/run)
-             (project-root) (cons op rest-args))
+             root (cons op rest-args))
             0))
 
       "statusline"
       (System/exit
         (or ((requiring-resolve 'succession.cli.statusline/run)
-             (project-root))
+             root)
             0))
 
       ;; Detached drain worker — post-tool-use and stop hooks spawn
@@ -165,9 +179,9 @@
         (case op
           "drain" (System/exit
                     (or ((requiring-resolve 'succession.worker.drain/run!)
-                         (project-root))
+                         root)
                         0))
-          "logs"  (let [log-file (str (project-root) "/.succession/staging/jobs/.worker.log")]
+          "logs"  (let [log-file (str root "/.succession/staging/jobs/.worker.log")]
                     (if-not (.exists (java.io.File. log-file))
                       (do (binding [*out* *err*] (println "No worker log found:" log-file))
                           (System/exit 1))

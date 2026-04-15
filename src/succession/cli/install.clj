@@ -291,7 +291,12 @@ performance metric.
                     [(install-settings! settings-path)]
                     (when starter-pack?
                       (install-starter-pack! project-root)))
-          ok?     (every? #(contains? #{:ok :skipped} (:status %)) results)]
+          ok?     (every? #(contains? #{:ok :skipped} (:status %)) results)
+      results (if (and ok? starter-pack? (not global?))
+                (do (cards/materialize-promoted! project-root)
+                    (conj (vec results) {:step :snapshot :status :ok
+                                         :path (str (paths/root project-root) "/promoted.edn")}))
+                results)]
       (print-report! results)
       (println)
       (println (if ok? "install complete." "install finished with errors."))

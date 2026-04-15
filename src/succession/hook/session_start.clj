@@ -69,6 +69,7 @@
                          (install/install-config!     project-root)
                          (when (get (config/load-config project-root) :auto-install/starter-pack true)
                            (install/install-starter-pack! project-root))
+                         (store-cards/materialize-promoted! project-root)
                          (binding [*out* *err*]
                            (println (str "succession: initialized store at " project-root))))
           current-sess (or (:session_id input) "unknown")

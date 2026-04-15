@@ -27,7 +27,7 @@
 (defn- format-date
   [mtime]
   (.format (doto (java.text.SimpleDateFormat. "yyyy-MM-dd")
-             (.setTimeZone (java.util.TimeZone/getDefault)))
+             (.setTimeZone (java.util.TimeZone/getTimeZone "UTC")))
            (java.util.Date. ^long mtime)))
 
 ;; ------------------------------------------------------------------
