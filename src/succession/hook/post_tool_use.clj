@@ -33,8 +33,7 @@
    This namespace does not implement asyncRewake — that's deferred per
    plan §PostToolUse until the headless continuation loop is
    root-caused."
-  (:require [cheshire.core :as json]
-            [clojure.edn :as edn]
+  (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [babashka.fs :as fs]
@@ -167,20 +166,30 @@
     obs))
 
 ;; ------------------------------------------------------------------
+;; Consult re-emit
+;; ------------------------------------------------------------------
+
+(defn- succession-consult-call?
+  "Returns true when the tool call was `succession consult [...]`.
+   `tool-input` is the parsed hook payload map — coercing to str is
+   sufficient because the :command value will contain the substring."
+  [tool-name tool-input]
+  (and (= "Bash" tool-name)
+       (some-> tool-input str (str/includes? "succession consult"))))
+
+;; ------------------------------------------------------------------
 ;; Public entry
 ;; ------------------------------------------------------------------
 
 (defn run
   "PostToolUse hook entry. Runs the sync refresh lane, then enqueues
    a :judge job for the async drain worker. Never throws — any error
-   is logged to stderr and swallowed. Claude Code sees at most one
-   JSON blob on stdout from the sync lane."
+   is logged to stderr and swallowed. Normally emits one JSON blob on
+   stdout; emits a second when the tool call was `succession consult`
+   (the consult re-emit path)."
   []
   (try
-    (let [raw-stdin    (try (slurp *in*) (catch Throwable _ ""))
-          input        (try (if (str/blank? raw-stdin) {}
-                                (json/parse-string raw-stdin true))
-                            (catch Throwable _ {}))
+    (let [input        (common/read-input)
           project-root (common/project-root input)
           session      (or (:session_id input) "unknown")
           tool-name    (:tool_name input)
@@ -216,6 +225,14 @@
                                :last-emit-bytes cur-bytes))
           (common/emit-additional-context! "PostToolUse" reminder))
         (write-state! session state'))
+
+      ;; Re-emit consult output as additionalContext so it surfaces in the
+      ;; conversation rather than sitting in a collapsed Bash tool result.
+      (when (succession-consult-call? tool-name tool-input)
+        (when-let [response (not-empty (str/trim (str (:tool_response input))))]
+          (common/emit-additional-context!
+            "PostToolUse"
+            (str "**[Succession consult]**\n" response))))
 
       ;; Async judge lane — enqueue a job and kick the drain worker.
       ;; Read recent transcript context so the judge can see what the
