@@ -7,24 +7,31 @@
 
    What SessionStart does, per plan §SessionStart:
 
-     1. Load the materialized `promoted.edn` snapshot.
-     2. Check `staging/{other-sessions}/` for orphan deltas (a previous
+     1. Auto-init: if `.succession/` is absent, create the store dirs
+        and write the starter config.edn — supports the global-install
+        flow where per-project setup happens on first session.
+     2. Load the materialized `promoted.edn` snapshot.
+     3. Check `staging/{other-sessions}/` for orphan deltas (a previous
         crashed session). If present, surface them in the returned
         additionalContext as a pending-reconciliation note — do NOT
         auto-promote, because that would bypass the PreCompact lock.
-     3. Render the promoted cards as a markdown behavior tree via
+     4. Render the promoted cards as a markdown behavior tree via
         `domain/render/identity-tree`.
-     4. Append the consult-skill footer so the agent knows how to pull
+     5. Append the consult-skill footer so the agent knows how to pull
         on its identity mid-reasoning.
-     5. Emit `{:hookSpecificOutput {:additionalContext <md>}}`.
+     6. Emit `{:hookSpecificOutput {:additionalContext <md>}}`.
 
-   No LLM. No disk writes (orphan handling is flagged, not applied)."
-  (:require [succession.domain.render :as render]
+   No LLM. Disk writes only on first-time auto-init."
+  (:require [clojure.java.io :as io]
+            [succession.cli.install :as install]
+            [succession.config :as config]
+            [succession.domain.render :as render]
             [succession.domain.rollup :as rollup]
             [succession.domain.weight :as weight]
             [succession.hook.common :as common]
             [succession.store.cards :as store-cards]
             [succession.store.observations :as store-obs]
+            [succession.store.paths :as paths]
             [succession.store.sessions :as store-sessions]))
 
 (def ^:private consult-skill-footer
@@ -57,6 +64,13 @@
   (try
     (let [input        (common/read-input)
           project-root (common/project-root input)
+          _            (when-not (.exists (io/file (paths/root project-root)))
+                         (install/install-store-dirs! project-root)
+                         (install/install-config!     project-root)
+                         (when (get (config/load-config project-root) :auto-install/starter-pack true)
+                           (install/install-starter-pack! project-root))
+                         (binding [*out* *err*]
+                           (println (str "succession: initialized store at " project-root))))
           current-sess (or (:session_id input) "unknown")
           now          (java.util.Date.)
           cfg          (common/load-config input)
