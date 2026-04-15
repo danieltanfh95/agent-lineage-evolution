@@ -22,9 +22,7 @@
    `additionalContext` — plan §PostToolUse and the headless-
    continuation-loop investigation established that emitting reminders
    at Stop is wasted work (the agent is done for the turn)."
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
-            [succession.domain.reconcile :as reconcile]
+  (:require [succession.domain.reconcile :as reconcile]
             [succession.hook.common :as common]
             [succession.store.cards :as store-cards]
             [succession.store.contradictions :as store-contra]
@@ -88,10 +86,7 @@
    background pass."
   []
   (try
-    (let [raw-stdin    (try (slurp *in*) (catch Throwable _ ""))
-          input        (try (if (str/blank? raw-stdin) {}
-                                (json/parse-string raw-stdin true))
-                            (catch Throwable _ {}))
+    (let [input        (common/read-input)
           project-root (common/project-root input)
           session      (or (:session_id input) "unknown")
           now          (java.util.Date.)

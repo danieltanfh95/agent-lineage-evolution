@@ -48,7 +48,7 @@
             max-last  (.getTime ^java.util.Date (reduce #(if (pos? (compare %1 %2)) %1 %2) lasts))]
         (ms->days (- max-last min-first))))))
 
-(defn- gap-crossings
+(defn gap-crossings
   "How many session boundaries are real dormant gaps? Walks sessions in
    order of first-at; each session (after the first) whose first-at
    comes strictly after the previous session's last-at counts as a

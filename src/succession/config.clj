@@ -158,26 +158,26 @@
   "Return nil on success, or a vector of {:path ... :problem ...} maps
    on failure. Checks structural invariants but not semantic sanity."
   [config]
-  (let [problems (atom [])]
-    (when-not (number? (:weight/freq-cap config))
-      (swap! problems conj (problem [:weight/freq-cap] "must be a number")))
-    (when-not (number? (:weight/span-exponent config))
-      (swap! problems conj (problem [:weight/span-exponent] "must be a number")))
-    (when-not (and (number? (:weight/decay-half-life-days config))
-                   (pos? (:weight/decay-half-life-days config)))
-      (swap! problems conj (problem [:weight/decay-half-life-days] "must be a positive number")))
-    (when-let [tier-rules (:tier/rules config)]
-      (doseq [tier valid-tiers]
-        (when-not (contains? tier-rules tier)
-          (swap! problems conj (problem [:tier/rules tier] "tier missing from :tier/rules")))))
-    (when-not (every? valid-categories (:card/categories config))
-      (swap! problems conj (problem [:card/categories] "contains unknown category")))
-    (when-let [w (:worker/async config)]
-      (doseq [k [:idle-timeout-seconds :parallelism :stale-lock-seconds
-                 :heartbeat-seconds :scan-interval-ms]]
-        (when-not (and (number? (get w k)) (pos? (get w k)))
-          (swap! problems conj (problem [:worker/async k] "must be a positive number")))))
-    (when-let [ll (:worker/log-level config)]
-      (when-not (contains? #{:debug :info :warn :error} ll)
-        (swap! problems conj (problem [:worker/log-level] "must be one of :debug :info :warn :error"))))
-    (seq @problems)))
+  (seq
+    (concat
+      (keep identity
+        [(when-not (number? (:weight/freq-cap config))
+           (problem [:weight/freq-cap] "must be a number"))
+         (when-not (number? (:weight/span-exponent config))
+           (problem [:weight/span-exponent] "must be a number"))
+         (when-not (and (number? (:weight/decay-half-life-days config))
+                        (pos? (:weight/decay-half-life-days config)))
+           (problem [:weight/decay-half-life-days] "must be a positive number"))
+         (when-not (every? valid-categories (:card/categories config))
+           (problem [:card/categories] "contains unknown category"))
+         (when-let [ll (:worker/log-level config)]
+           (when-not (contains? #{:debug :info :warn :error} ll)
+             (problem [:worker/log-level] "must be one of :debug :info :warn :error")))])
+      (when-let [tier-rules (:tier/rules config)]
+        (for [tier valid-tiers :when (not (contains? tier-rules tier))]
+          (problem [:tier/rules tier] "tier missing from :tier/rules")))
+      (when-let [w (:worker/async config)]
+        (for [k [:idle-timeout-seconds :parallelism :stale-lock-seconds
+                 :heartbeat-seconds :scan-interval-ms]
+              :when (not (and (number? (get w k)) (pos? (get w k))))]
+          (problem [:worker/async k] "must be a positive number"))))))

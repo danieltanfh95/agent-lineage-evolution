@@ -20,6 +20,7 @@
    PreCompact emits no `additionalContext` — it runs at compaction time
    when the model is not reading hook output anyway."
   (:require [clojure.java.io :as io]
+            [succession.config :as config]
             [succession.domain.card :as card]
             [succession.domain.tier :as tier]
             [succession.hook.common :as common]
@@ -72,7 +73,7 @@
   [cards-by-id card-id payload]
   (if-let [existing (get cards-by-id card-id)]
     (let [new-tier (:tier payload)]
-      (if (contains? #{:principle :rule :ethic} new-tier)
+      (if (contains? config/valid-tiers new-tier)
         (assoc cards-by-id card-id (card/retier existing new-tier))
         cards-by-id))
     cards-by-id))

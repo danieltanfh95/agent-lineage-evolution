@@ -21,7 +21,9 @@
    weights — keeping `domain/weight` separate. Recency is also passed
    in (computed by the caller from observations) so this namespace
    stays free of clock-reading."
-  (:require [succession.config :as config]))
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
+            [succession.config :as config]))
 
 (def ^:private tier-baseline
   "Constant per-tier baseline used by the :tier-weight feature.
@@ -42,7 +44,7 @@
         denom (min (count a) (count b))]
     (if (zero? denom)
       0.0
-      (/ (count (clojure.set/intersection a b)) (double denom)))))
+      (/ (count (set/intersection a b)) (double denom)))))
 
 (defn- fingerprint-match?
   "True if the card's :card/fingerprint string is a substring match
@@ -51,7 +53,7 @@
   [card situation]
   (if-let [fp (:card/fingerprint card)]
     (let [descriptor (or (:situation/tool-descriptor situation) "")]
-      (clojure.string/includes? descriptor fp))
+      (str/includes? descriptor fp))
     false))
 
 (defn- score-card

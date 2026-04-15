@@ -186,8 +186,9 @@
       (->> (.listFiles dir)
            (filter #(and (.isDirectory ^java.io.File %)
                          (re-matches uuid-re (.getName ^java.io.File %))))
-           (map #(hash-map :session/id   (.getName ^java.io.File %)
-                           :session/mtime (.lastModified ^java.io.File %)))
+           (map (fn [^java.io.File f]
+                  {:session/id   (.getName f)
+                   :session/mtime (.lastModified f)}))
            (sort-by :session/mtime #(compare %2 %1))
            vec))))
 

@@ -99,16 +99,7 @@
   (let [r       (rollup/rollup-by-session observations)
         w       (weight/compute r now config)
         vr      (rollup/violation-rate r)
-        ordered (rollup/sessions-ordered r)
-        gaps    (if (<= (count ordered) 1)
-                  0
-                  (reduce (fn [acc [prev curr]]
-                            (if (pos? (compare (:session/first-at curr)
-                                               (:session/last-at prev)))
-                              (inc acc)
-                              acc))
-                          0
-                          (partition 2 1 ordered)))]
+        gaps    (weight/gap-crossings r config)]
     {:weight         w
      :violation-rate vr
      :gap-crossings  gaps}))
