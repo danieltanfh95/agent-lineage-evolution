@@ -103,6 +103,12 @@
       ((requiring-resolve 'succession.cli.install/run)
        root (cons op rest-args))
 
+      "identity"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.identity/run)
+             root (cons op rest-args))
+            0))
+
       "identity-diff"
       ((requiring-resolve 'succession.cli.identity-diff/run)
        root (cons op rest-args))

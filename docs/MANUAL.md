@@ -167,6 +167,39 @@ args.
 
 Reference: `src/succession/cli/identity_diff.clj`.
 
+### identity
+
+Inspect and edit identity cards directly, without running the full
+`promote!` pipeline.
+
+```
+succession identity list [--root <path>]
+succession identity show <card-id> [--root <path>]
+succession identity set  <card-id> [--tier <T>] [--tier-floor <T>] [--tier-max <T>] [--no-bounds] [--root <path>]
+```
+
+- **`list`** — tabular view: id, tier, bounds (floor/max if set), category.
+- **`show <card-id>`** — verbose single card: all fields.
+- **`set <card-id>`** — edit card properties in place.
+  - `--tier <T>` — move card to tier `T` (`principle | rule | ethic`).
+    Also sets `{:floor T}` in bounds unless `--no-bounds` is given.
+  - `--tier-floor <T>` — set or update only the `:floor` bound without
+    changing the current tier.
+  - `--tier-max <T>` — set or update only the `:max` bound without
+    changing the current tier.
+  - `--no-bounds` — remove `:card/tier-bounds` entirely (card becomes
+    fully metrics-driven on the next compact).
+
+`set` writes the card file directly via `write-card!` and calls
+`materialize-promoted!` to refresh `promoted.edn`. It bypasses the
+`promote!` pipeline — tier changes survive the next `compact` only
+if a floor bound was also set (or the metrics have lifted the card
+above the exit threshold on their own).
+
+Exit 0 on success, 1 on unknown card id or invalid tier value.
+
+Reference: `src/succession/cli/identity.clj`.
+
 ### show
 
 Pretty-print the live promoted identity — the same rendering

@@ -91,6 +91,19 @@
                       higher-candidates))]
     (or promotion tier-after-demote)))
 
+(defn apply-bounds
+  "Clamp new-tier to the declared bounds map `{:floor tier :max tier}`.
+   Either key may be absent. bounds may be nil (no clamping)."
+  [new-tier bounds]
+  (if (nil? bounds)
+    new-tier
+    (let [{:keys [floor max]} bounds
+          r (tier-rank new-tier)]
+      (cond
+        (and floor (< r (tier-rank floor))) floor
+        (and max   (> r (tier-rank max)))   max
+        :else new-tier))))
+
 (defn propose-transition
   "High-level: return a map describing any change the card needs.
 

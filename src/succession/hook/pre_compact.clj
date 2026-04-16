@@ -125,17 +125,19 @@
    whether its declared tier still matches the eligible tier under
    current metrics. Applies promotions and demotions — hysteresis is
    enforced inside `eligible-tier`, so a card near a threshold will
-   not flicker."
+   not flicker. If the card carries `:card/tier-bounds`, the result
+   is clamped to those bounds before writing."
   [cards-by-id observations-by-card now config]
   (into {}
         (map (fn [[id c]]
-               (let [obs (get observations-by-card id [])
-                     m   (common/metrics-for obs now config)
-                     tr  (tier/propose-transition c m config)]
-                 (case (:kind tr)
-                   :promote [id (card/retier c (:to tr))]
-                   :demote  [id (card/retier c (:to tr))]
-                   [id c]))))
+               (let [obs   (get observations-by-card id [])
+                     m     (common/metrics-for obs now config)
+                     tr    (tier/propose-transition c m config)
+                     raw   (case (:kind tr)
+                             (:promote :demote) (:to tr)
+                             (:card/tier c))
+                     final (tier/apply-bounds raw (:card/tier-bounds c))]
+                 [id (card/retier c final)])))
         cards-by-id))
 
 ;; ------------------------------------------------------------------

@@ -38,13 +38,17 @@
        (string? (:card/id x))
        (contains? config/valid-tiers (:card/tier x))
        (contains? config/valid-categories (:card/category x))
-       (string? (:card/text x))))
+       (string? (:card/text x))
+       (let [b (:card/tier-bounds x)]
+         (or (nil? b)
+             (and (or (nil? (:floor b)) (contains? config/valid-tiers (:floor b)))
+                  (or (nil? (:max b))   (contains? config/valid-tiers (:max b))))))))
 
 (defn make-card
   "Constructor with required fields + optional metadata merged in.
    Does not touch disk. Does not generate timestamps — caller provides
    provenance. This keeps the function pure and replayable."
-  [{:keys [id tier category text tags fingerprint provenance]}]
+  [{:keys [id tier category text tags fingerprint provenance tier-bounds]}]
   {:pre [(string? id)
          (contains? config/valid-tiers tier)
          (contains? config/valid-categories category)
@@ -57,7 +61,8 @@
            :card/text              text
            :card/provenance        provenance}
     tags        (assoc :card/tags (vec tags))
-    fingerprint (assoc :card/fingerprint fingerprint)))
+    fingerprint (assoc :card/fingerprint fingerprint)
+    tier-bounds (assoc :card/tier-bounds tier-bounds)))
 
 (defn rewrite
   "Produce a new card with updated text, preserving provenance and

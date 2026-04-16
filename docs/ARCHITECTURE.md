@@ -60,8 +60,9 @@ live in their pure namespace alongside the predicate and constructor.
 ```clojure
 {:succession/entity-type :card
  :card/id         "prefer-edit-over-write"
- :card/tier       :principle            ; :principle | :rule | :ethic
- :card/category   :strategy             ; see config/valid-categories
+ :card/tier        :principle            ; :principle | :rule | :ethic
+ :card/tier-bounds {:floor :rule}       ; optional — bounds map for retier clamping
+ :card/category    :strategy            ; see config/valid-categories
  :card/text       "Prefer Edit over Write when modifying existing files…"
  :card/tags       [:file-editing :tooling]
  :card/fingerprint "tool=Edit"          ; optional — pure invocation detection
@@ -74,7 +75,9 @@ live in their pure namespace alongside the predicate and constructor.
 
 Weight and tier-eligibility are NOT stored on the card. They are computed
 from the card's observation log on the fly. A card is inert data; everything
-interesting is derived.
+interesting is derived. `:card/tier-bounds` is the one exception: it is stored
+on the card as a retier guard (`{:floor T :max T}`, both keys optional), not
+derived from observations.
 
 ### observation (`domain/observation.clj`)
 

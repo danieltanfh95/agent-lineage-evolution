@@ -66,15 +66,21 @@
               :provenance/born-context    (:provenance/born-context prov)}}
       (:card/tags card)        (assoc :card/tags (mapv name (:card/tags card)))
       (:card/fingerprint card) (assoc :card/fingerprint (:card/fingerprint card))
-      (:card/rewrites card)    (assoc :card/rewrites (vec (:card/rewrites card))))))
+      (:card/rewrites card)    (assoc :card/rewrites (vec (:card/rewrites card)))
+      (:card/tier-bounds card) (assoc :card/tier-bounds
+                                      (into {} (map (fn [[k v]] [k (name v)]))
+                                            (:card/tier-bounds card))))))
 
 (defn- frontmatter->card
   "Reverse of `card->frontmatter`. Validates via `domain/card/make-card`."
   [fm body file]
-  (let [prov (or (:card/provenance fm) {})
-        tags (:card/tags fm)
-        tier (keyword-or-str (:card/tier fm))
-        cat  (keyword-or-str (:card/category fm))]
+  (let [prov       (or (:card/provenance fm) {})
+        tags       (:card/tags fm)
+        tier       (keyword-or-str (:card/tier fm))
+        cat        (keyword-or-str (:card/category fm))
+        raw-bounds (:card/tier-bounds fm)
+        tier-bounds (when raw-bounds
+                      (into {} (map (fn [[k v]] [k (keyword v)])) raw-bounds))]
     (-> (card/make-card
           {:id          (:card/id fm)
            :tier        tier
@@ -82,6 +88,7 @@
            :text        (str/trim (or body ""))
            :tags        (when tags (mapv keyword-or-str tags))
            :fingerprint (:card/fingerprint fm)
+           :tier-bounds tier-bounds
            :provenance  {:provenance/born-at         (iso->inst (:provenance/born-at prov))
                          :provenance/born-in-session (:provenance/born-in-session prov)
                          :provenance/born-from       (keyword-or-str

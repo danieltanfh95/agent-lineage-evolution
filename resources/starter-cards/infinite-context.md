@@ -2,6 +2,8 @@
 succession/entity-type: card
 card/id: infinite-context
 card/tier: rule
+card/tier-bounds:
+  floor: rule
 card/category: strategy
 card/provenance:
   provenance/born-at: '2026-04-14T00:00:00Z'

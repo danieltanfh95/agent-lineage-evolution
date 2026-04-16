@@ -27,6 +27,7 @@ turns about the same thing.
   archive          Inspect or prune archive snapshots  (list | prune --keep-last N)
   queue            Inspect the async judge queue
   worker           Manage the drain worker  (drain | logs [--follow])
+  identity         Inspect and edit identity cards  (list | show <id> | set <id> [--tier T] [--tier-floor T] [--tier-max T] [--no-bounds])
   identity-diff    Diff two archived identity snapshots  (list | last | <ts1> [ts2])
   replay           Replay a session transcript through the identity cycle in a sandbox
   import           One-shot migration from old `.succession/rules/*.md` YAML files
