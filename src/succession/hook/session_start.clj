@@ -64,7 +64,11 @@
   (try
     (let [input        (common/read-input)
           project-root (common/project-root input)
-          _            (when-not (.exists (io/file (paths/root project-root)))
+          ;; promoted.edn is the last file written during init; its
+                         ;; absence means init never completed successfully.
+                         ;; Strictly better than the old dir-exists check:
+                         ;; covers both "dir missing" and "dir exists, contents missing".
+          _            (when-not (.exists (io/file (paths/promoted-snapshot project-root)))
                          (install/install-store-dirs! project-root)
                          (install/install-config!     project-root)
                          (when (get (config/load-config project-root) :auto-install/starter-pack true)

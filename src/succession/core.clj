@@ -99,6 +99,12 @@
       ((requiring-resolve 'succession.cli.config-validate/run)
        root (cons op rest-args))
 
+      "doctor"
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.doctor/run)
+             root (cons op rest-args))
+            0))
+
       "install"
       ((requiring-resolve 'succession.cli.install/run)
        root (cons op rest-args))
