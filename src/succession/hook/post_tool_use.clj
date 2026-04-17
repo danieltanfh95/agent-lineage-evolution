@@ -8,12 +8,10 @@
      2. Rank salient cards against the completed tool call via
         `domain/salience`.
      3. Render a compact refresh reminder via `domain/render/salient-reminder`.
-     4. Honor the refresh gate — integration-gap-turns, byte-threshold,
-        cold-start-skip-turns. These are pacing filters, not budgets.
-        Tuned against an 18-turn replay (pytest-5103, 18-0).
-        `cap-per-session` was removed when the project adopted the
-        infinite-context axiom — see the `infinite-context` principle
-        card.
+     4. Honor the refresh gate — context-size only (byte-threshold,
+        cold-start-skip-bytes, burst-suppress-ms). No call counting.
+        Parallel tool calls in one turn hit burst suppression; 100KB
+        between emits paces refreshes at typical tool-call density.
      5. Detect deterministic `:invoked`/`:confirmed` observations via
         `card/fingerprint` substring match against the tool descriptor.
         Append the observation to `store/observations`.
@@ -61,7 +59,7 @@
   (str "/tmp/.succession-identity-refresh-" session-id))
 
 (def ^:private initial-state
-  {:calls 0 :emits 0 :last-emit-call 0 :last-emit-bytes 0})
+  {:emits 0 :last-emit-bytes 0 :last-emit-ms 0})
 
 (defn read-state
   [session-id]
@@ -80,26 +78,39 @@
     0))
 
 (defn should-emit?
-  "Gate decision — pure fn of (state, cur-bytes, gate-config).
+  "Gate decision — pure fn of (state, cur-bytes, now-ms, gate-config).
 
-   Pacing filters only — no hard cap on total emissions per session.
-   The infinite-context axiom means drift is the enemy, not token
-   budget. `integration-gap-turns` and `byte-threshold` prevent
-   back-to-back redundant reminders; beyond that, fire freely."
-  [{:keys [calls emits last-emit-call last-emit-bytes]}
+   Pacing by context size only — no call counting. The infinite-context
+   axiom means drift is the enemy, not token budget.
+
+   Three gates:
+   1. Burst suppression — <1s since last emit, skip (handles parallel tool calls)
+   2. Cold start — haven't reached cold-start-skip-bytes yet
+   3. Byte threshold — 100KB since last emit"
+  [{:keys [emits last-emit-bytes last-emit-ms]}
    cur-bytes
-   {:keys [integration-gap-turns byte-threshold cold-start-skip-turns]
-    :or   {integration-gap-turns 2
-           byte-threshold        200
-           cold-start-skip-turns 1}}]
-  (let [first-emit? (and (zero? (or emits 0))
-                         (>= calls cold-start-skip-turns))
-        calls-since (- calls (or last-emit-call 0))
-        bytes-since (- cur-bytes (or last-emit-bytes 0))
-        later-emit? (and (pos? (or emits 0))
-                         (or (>= calls-since integration-gap-turns)
-                             (>= bytes-since byte-threshold)))]
-    (or first-emit? later-emit?)))
+   now-ms
+   {:keys [byte-threshold cold-start-skip-bytes burst-suppress-ms]
+    :or   {byte-threshold        100000
+           cold-start-skip-bytes 50000
+           burst-suppress-ms     1000}}]
+  (cond
+    ;; Burst suppression — <1s since last emit, skip (no I/O needed)
+    (and last-emit-ms (pos? last-emit-ms)
+         (< (- now-ms last-emit-ms) burst-suppress-ms))
+    false
+
+    ;; Cold start — haven't reached threshold yet
+    (< cur-bytes cold-start-skip-bytes)
+    false
+
+    ;; First emit — past cold start, never emitted
+    (zero? (or emits 0))
+    true
+
+    ;; Later emits — byte-threshold since last emit
+    :else
+    (>= (- cur-bytes (or last-emit-bytes 0)) byte-threshold)))
 
 ;; ------------------------------------------------------------------
 ;; Salient reminder
@@ -116,22 +127,22 @@
 
 (defn- consult-advisory
   "Periodic consult reminder — rides inside the normal refresh
-   reminder. Fires on every `:every-n-turns` matched call."
-  [calls every-n-turns]
-  (when (and every-n-turns (pos? every-n-turns)
-             (zero? (mod calls every-n-turns)))
+   reminder. Fires on every `:every-n-emits` matched emit."
+  [emits every-n-emits]
+  (when (and every-n-emits (pos? every-n-emits) (pos? emits)
+             (zero? (mod emits every-n-emits)))
     (str "\n\n_Consult your identity when uncertain: "
          "`succession consult \"<situation>\"`._")))
 
 (defn build-reminder
-  "Pure composition step — given the ranked candidates + calls-count +
+  "Pure composition step — given the ranked candidates + emits-count +
    config, produce the refresh reminder text. Extracted so tests can
    drive it without stdin / disk."
-  [ranked calls config]
+  [ranked emits config]
   (let [header   "**Identity reminder**"
         base     (render/salient-reminder ranked header)
-        advisory (consult-advisory calls
-                                   (get-in config [:consult/advisory :every-n-turns]))]
+        advisory (consult-advisory emits
+                                   (get-in config [:consult/advisory :every-n-emits]))]
     (str base (or advisory ""))))
 
 ;; ------------------------------------------------------------------
@@ -200,11 +211,11 @@
           cards        (or (:cards (store-cards/read-promoted-snapshot project-root)) [])
           descriptor   (tool-descriptor tool-name tool-input)
 
-          ;; Update refresh state first (matches port semantics).
+          ;; Refresh gate — context-size only, no call counting
           prev-state   (read-state session)
-          state'       (-> prev-state (update :calls (fnil inc 0)))
           cur-bytes    (transcript-bytes transcript)
-          emit?        (should-emit? state' cur-bytes (:refresh/gate cfg))
+          now-ms       (System/currentTimeMillis)
+          emit?        (should-emit? prev-state cur-bytes now-ms (:refresh/gate cfg))
 
           scored       (common/score-cards project-root cards cfg now)
           situation    {:situation/text "after tool call"
@@ -217,14 +228,15 @@
 
       ;; Refresh emission path
       (if emit?
-        (let [reminder (build-reminder ranked (:calls state') cfg)]
+        (let [new-emits (inc (or (:emits prev-state) 0))
+              reminder  (build-reminder ranked new-emits cfg)]
           (write-state! session
-                        (assoc state'
-                               :emits (inc (or (:emits state') 0))
-                               :last-emit-call (:calls state')
-                               :last-emit-bytes cur-bytes))
+                        {:emits           new-emits
+                         :last-emit-bytes cur-bytes
+                         :last-emit-ms    now-ms})
           (common/emit-additional-context! "PostToolUse" reminder))
-        (write-state! session state'))
+        ;; No emit — preserve existing state (old keys harmless, ignored)
+        (write-state! session prev-state))
 
       ;; Re-emit consult output as additionalContext so it surfaces in the
       ;; conversation rather than sitting in a collapsed Bash tool result.

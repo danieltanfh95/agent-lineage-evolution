@@ -52,14 +52,17 @@
     :top-k            12}
 
    ;; --- Refresh gate (pacing filters, not budgets — see infinite-context principle) ---
+   ;; Context-size only — no call counting. Parallel tool calls in one turn
+   ;; hit burst suppression; 100KB ≈ 4-5 tool calls at typical density.
    :refresh/gate
-   {:integration-gap-turns 2
-    :byte-threshold        200
-    :cold-start-skip-turns 1}
+   {:byte-threshold        100000   ; 100KB since last emit
+    :cold-start-skip-bytes 50000    ; 50KB before first emit
+    :burst-suppress-ms     1000}    ; 1s wall-clock fast-skip
 
    ;; --- Consult advisory reminder cadence ---
+   ;; Fires every N emits (not tool calls) since emits are paced by context size.
    :consult/advisory
-   {:every-n-turns               8
+   {:every-n-emits               4
     :on-contradiction-adjacency  true}
 
    ;; --- Escalation thresholds ---
