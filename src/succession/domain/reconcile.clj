@@ -35,18 +35,19 @@
             [succession.domain.tier :as tier]))
 
 (defn- make-contradiction
-  [{:keys [id at session category between detector resolution]}]
-  {:succession/entity-type :contradiction
-   :contradiction/id       id
-   :contradiction/at       at
-   :contradiction/session  session
-   :contradiction/category category
-   :contradiction/between  between
-   :contradiction/detector detector
-   :contradiction/resolution resolution
-   :contradiction/resolved-at nil
-   :contradiction/resolved-by nil
-   :contradiction/escalated?  false})
+  [{:keys [id at session category between detector resolution context]}]
+  (cond-> {:succession/entity-type :contradiction
+           :contradiction/id       id
+           :contradiction/at       at
+           :contradiction/session  session
+           :contradiction/category category
+           :contradiction/between  between
+           :contradiction/detector detector
+           :contradiction/resolution resolution
+           :contradiction/resolved-at nil
+           :contradiction/resolved-by nil
+           :contradiction/escalated?  false}
+    context (assoc :contradiction/context context)))
 
 ;; ------------------------------------------------------------------
 ;; Category 1: Self-contradictory claim
@@ -56,12 +57,23 @@
 ;; weight's violation penalty. We return an :uncertain marker so
 ;; downstream callers can act if they want.
 ;; ------------------------------------------------------------------
+(defn- extract-recent-context
+  "Extract the most recent :observation/recent-context from a seq of
+   observations. Prefers violated observations since they're most
+   relevant for understanding what went wrong."
+  [observations]
+  (let [with-context (filter :observation/recent-context observations)
+        violated     (filter #(= :violated (:observation/kind %)) with-context)]
+    (or (:observation/recent-context (last (sort-by :observation/at violated)))
+        (:observation/recent-context (last (sort-by :observation/at with-context))))))
+
 (defn detect-self-contradictory
   "Return contradiction records for cards that have :confirmed and
    :violated observations in the same session. `observations` is a seq
    keyed by card-id elsewhere; this function takes them already grouped."
   [card observations now]
   (let [per-session (rollup/rollup-by-session observations)
+        obs-by-session (group-by :observation/session observations)
         conflicted-sessions
         (filter
           (fn [[_ bucket]]
@@ -69,14 +81,17 @@
                  (pos? (:session/violated  bucket))))
           per-session)]
     (for [[session _] conflicted-sessions]
-      (make-contradiction
-        {:id       (str "c-self-" (:card/id card) "-" session)
-         :at       now
-         :session  session
-         :category :self-contradictory
-         :between  [{:card/id (:card/id card)}]
-         :detector :pure
-         :resolution nil}))))
+      (let [session-obs (get obs-by-session session [])
+            ctx         (extract-recent-context session-obs)]
+        (make-contradiction
+          {:id       (str "c-self-" (:card/id card) "-" session)
+           :at       now
+           :session  session
+           :category :self-contradictory
+           :between  [{:card/id (:card/id card)}]
+           :detector :pure
+           :resolution nil
+           :context  ctx})))))
 
 ;; ------------------------------------------------------------------
 ;; Category 4: Tier violation
@@ -185,17 +200,19 @@
                                       (not-any? #(= :violated (:observation/kind %)) obs))))
                              later))))]
         (if later-all-confirmed?
-          [(make-contradiction
-             {:id         (str "c-override-" (:card/id card))
-              :at         now
-              :session    (last sessions-in-order)
-              :category   :contextual-override
-              :between    [{:card/id (:card/id card)}]
-              :detector   :pure
-              :resolution {:kind :rewrite-candidate
-                           :proposed-by :pure
-                           :description "violation followed by sustained confirmation — identity may have evolved"
-                           :confidence 0.7}})]
+          (let [ctx (extract-recent-context ordered)]
+            [(make-contradiction
+               {:id         (str "c-override-" (:card/id card))
+                :at         now
+                :session    (last sessions-in-order)
+                :category   :contextual-override
+                :between    [{:card/id (:card/id card)}]
+                :detector   :pure
+                :context    ctx
+                :resolution {:kind :rewrite-candidate
+                             :proposed-by :pure
+                             :description "violation followed by sustained confirmation — identity may have evolved"
+                             :confidence 0.7}})])
           [])))))
 
 ;; ------------------------------------------------------------------

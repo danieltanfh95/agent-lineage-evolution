@@ -272,6 +272,16 @@ spawn a new card.")
     "                        proposed_tier=rule|ethic|null\n"
     "                        spawn_card_id=string-or-null, spawn_card_text=string-or-null"))
 
+(defn- render-conversation-context
+  "Render conversation context for a contradiction, if present."
+  [c]
+  (when-let [ctx (:contradiction/context c)]
+    (let [truncated (subs ctx 0 (min 600 (count ctx)))]
+      (str "\nCONVERSATION CONTEXT (what the user asked for):\n"
+           truncated
+           (when (> (count ctx) 600) "\n[truncated...]")
+           "\n"))))
+
 (defn- render-contradiction-block
   "Render one contradiction as a numbered prompt block."
   [idx c cards-by-id config]
@@ -287,7 +297,8 @@ spawn a new card.")
                           (nil? eff-a) ""
                           (>= eff-a 1.0) "  ** FRICTION >= 1.0: Use defer-to-human **\n"
                           (>= eff-a 0.5) "  ** HIGH FRICTION: Prefer append-section or spawn-card **\n"
-                          :else "")]
+                          :else "")
+        ctx-block (render-conversation-context c)]
     (str
       "--- Contradiction " idx " ---\n"
       "contradiction_id: " cid "\n"
@@ -295,27 +306,32 @@ spawn a new card.")
       (case cat
         :self-contradictory
         (str "CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
-             friction-note-a)
+             friction-note-a
+             ctx-block)
 
         :contextual-override
         (str "CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
              friction-note-a
              "OVERRIDE PATTERN: "
-             (or (get-in c [:contradiction/resolution :description]) "") "\n")
+             (or (get-in c [:contradiction/resolution :description]) "") "\n"
+             ctx-block)
 
         :semantic-opposition
         (str "CARD A:\n" (if card-a (render-card card-a config) "(card A not found)") "\n"
              friction-note-a "\n"
-             "CARD B:\n" (if card-b (render-card card-b config) "(card B not found)") "\n")
+             "CARD B:\n" (if card-b (render-card card-b config) "(card B not found)") "\n"
+             ctx-block)
 
         :principle-violated
         (str "PRINCIPLE CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
              friction-note-a
              "VIOLATING OBSERVATION context: "
-             (or (get-in c [:contradiction/resolution :description]) "") "\n")
+             (or (get-in c [:contradiction/resolution :description]) "") "\n"
+             ctx-block)
 
         ;; fallback for any unrecognised category
-        (str "details: " (pr-str (select-keys c [:contradiction/category :contradiction/between])) "\n")))))
+        (str "details: " (pr-str (select-keys c [:contradiction/category :contradiction/between])) "\n"
+             ctx-block)))))
 
 (defn- build-batch-prompt
   "Build one prompt covering all contradictions in `contradictions`.

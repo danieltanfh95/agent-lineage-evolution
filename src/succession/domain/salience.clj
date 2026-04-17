@@ -48,12 +48,17 @@
 
 (defn- fingerprint-match?
   "True if the card's :card/fingerprint string is a substring match
-   against the situation's tool descriptor. The descriptor is built by
-   the caller as a stable string like 'tool=Edit,target=file.ts'."
+   against the situation's tool descriptor OR recent context. The
+   descriptor is built by the caller as a stable string like
+   'tool=Edit,target=file.ts'. Recent context contains the user's
+   message and assistant response, enabling intent-based matching
+   (e.g. fingerprint 'release' matches user saying 'push release')."
   [card situation]
   (if-let [fp (:card/fingerprint card)]
-    (let [descriptor (or (:situation/tool-descriptor situation) "")]
-      (str/includes? descriptor fp))
+    (let [descriptor (or (:situation/tool-descriptor situation) "")
+          context    (or (:situation/recent-context situation) "")]
+      (or (str/includes? descriptor fp)
+          (str/includes? context fp)))
     false))
 
 (defn- score-card

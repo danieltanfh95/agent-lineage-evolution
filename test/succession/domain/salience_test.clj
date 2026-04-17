@@ -71,3 +71,15 @@
 
 (deftest empty-input-returns-empty-test
   (is (= [] (salience/rank [] {:situation/tags []} cfg))))
+
+(deftest fingerprint-matches-recent-context-test
+  (testing "fingerprint matches user intent in recent-context, not just tool descriptor"
+    (let [c-with-fp (a-card {:id "ambiguity" :tier :rule
+                              :fingerprint "release"})
+          c-without (a-card {:id "other" :tier :principle})
+          ranked (salience/rank
+                   [(scored c-without) (scored c-with-fp)]
+                   {:situation/tool-descriptor "tool=Bash,input={:command \"git push\"}"
+                    :situation/recent-context "[user]: push release\n[assistant]: running git push"}
+                   cfg)]
+      (is (= "ambiguity" (:card/id (:card (first ranked))))))))

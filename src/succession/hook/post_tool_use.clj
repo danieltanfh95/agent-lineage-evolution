@@ -217,9 +217,14 @@
           now-ms       (System/currentTimeMillis)
           emit?        (should-emit? prev-state cur-bytes now-ms (:refresh/gate cfg))
 
+          ;; Read recent-context once — used for both salience and judge
+          ctx-window   (get-in cfg [:judge/llm :context-window])
+          recent       (transcript/recent-context transcript ctx-window)
+
           scored       (common/score-cards project-root cards cfg now)
           situation    {:situation/text "after tool call"
-                        :situation/tool-descriptor descriptor}
+                        :situation/tool-descriptor descriptor
+                        :situation/recent-context recent}
           ranked       (salience/rank scored situation cfg)]
 
       ;; Deterministic fingerprint observation — always runs, gate-independent
@@ -247,18 +252,15 @@
             (str "**[Succession consult]**\n" response))))
 
       ;; Async judge lane — enqueue a job and kick the drain worker.
-      ;; Read recent transcript context so the judge can see what the
-      ;; user asked for, not just the bare tool call.
-      (let [ctx-window (get-in cfg [:judge/llm :context-window])
-            recent     (transcript/recent-context transcript ctx-window)]
-        (common/enqueue-and-ensure-worker!
-          project-root cfg
-          {:type    :judge
-           :session session
-           :payload {:tool-name      tool-name
-                     :tool-input     tool-input
-                     :tool-response  (:tool_response input)
-                     :recent-context recent}})))
+      ;; recent-context already read above for salience ranking.
+      (common/enqueue-and-ensure-worker!
+        project-root cfg
+        {:type    :judge
+         :session session
+         :payload {:tool-name      tool-name
+                   :tool-input     tool-input
+                   :tool-response  (:tool_response input)
+                   :recent-context recent}}))
     (catch Throwable t
       (binding [*out* *err*]
         (println "succession post-tool-use error:" (.getMessage t)))))

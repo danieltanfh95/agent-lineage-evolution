@@ -179,23 +179,26 @@
   "Turn a seq of judge verdicts into a seq of observations ready for
    the store. Drops verdicts with kind :not-applicable, :ambiguous,
    or card-id \"none\". Caller supplies `session`, `at`, `hook` and
-   an `:id-fn` (usually `(fn [] (str \"obs-\" (random-uuid)))`)."
-  [verdicts {:keys [session at hook id-fn judge-model]}]
+   an `:id-fn` (usually `(fn [] (str \"obs-\" (random-uuid)))`).
+   `recent-context` is the conversation context at the time of the
+   tool call — stored in observations for contradiction reconciliation."
+  [verdicts {:keys [session at hook id-fn judge-model recent-context]}]
   (->> verdicts
        (filter (fn [v]
                  (and (not= "none" (:card-id v))
                       (kind-confirmed-or-violated? (:kind v)))))
        (map (fn [v]
               (obs/make-observation
-                {:id         (id-fn)
-                 :at         at
-                 :session    session
-                 :hook       hook
-                 :source     :judge-verdict
-                 :card-id    (:card-id v)
-                 :kind       (:kind v)
-                 :context    (:rationale v)
-                 :judge-model judge-model})))
+                {:id             (id-fn)
+                 :at             at
+                 :session        session
+                 :hook           hook
+                 :source         :judge-verdict
+                 :card-id        (:card-id v)
+                 :kind           (:kind v)
+                 :context        (:rationale v)
+                 :recent-context recent-context
+                 :judge-model    judge-model})))
        vec))
 
 ;; ------------------------------------------------------------------

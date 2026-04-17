@@ -52,8 +52,12 @@
 
 (defn make-observation
   "Constructor. Caller must provide `:at`, `:id`, and `:session` — this
-   keeps the function pure and replayable. `context` is optional."
-  [{:keys [id at session hook source card-id kind context judge-verdict-id judge-model]}]
+   keeps the function pure and replayable. `context` is optional.
+   `recent-context` is the conversation context (user message + assistant
+   response) at the time of observation — used to understand user intent
+   when reconciling contradictions."
+  [{:keys [id at session hook source card-id kind context recent-context
+           judge-verdict-id judge-model]}]
   {:pre [(string? id)
          (inst? at)
          (string? session)
@@ -70,6 +74,7 @@
            :observation/card-id    card-id
            :observation/kind       kind}
     context           (assoc :observation/context context)
+    recent-context    (assoc :observation/recent-context recent-context)
     judge-verdict-id  (assoc :observation/judge-verdict-id judge-verdict-id)
     judge-model       (assoc :observation/judge-model judge-model)))
 
