@@ -497,8 +497,9 @@ delivered via PostToolUse `hookSpecificOutput.additionalContext` produced
 CLAUDE.md produced **0**. The mechanism is Claude Code's internal
 `reorderAttachmentsForAPI`, which bubbles PostToolUse additionalContext to
 land adjacent to the most recent frame — inside the attention window where
-instructions still influence behavior at depth. The refresh gate's four tuned
-parameters (`integration-gap-turns: 2`, `byte-threshold: 200`,
-`cold-start-skip-turns: 1`) are imported unchanged
-from the experiment. Full methodology and cell tables live in
+instructions still influence behavior at depth. The refresh gate was
+simplified to byte-delta only (`byte-threshold: 200000`,
+`cold-start-skip-bytes: 50000`) — the infinite-context axiom makes
+finite-time pacing meaningless, so bytes-since-last-emit is the sole
+pacing signal. Full methodology and cell tables live in
 [docs/archive/succession-findings-2026.md](archive/succession-findings-2026.md).

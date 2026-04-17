@@ -31,6 +31,7 @@
             [succession.cli.replay-test]
             [succession.cli.show-test]
             ;; hook
+            [succession.hook.common-test]
             [succession.hook.post-tool-use-test]
             [succession.hook.pre-compact-test]
             [succession.hook.pre-tool-use-test]
@@ -74,6 +75,7 @@
     succession.cli.queue-test
     succession.cli.replay-test
     succession.cli.show-test
+    succession.hook.common-test
     succession.hook.post-tool-use-test
     succession.hook.pre-compact-test
     succession.hook.pre-tool-use-test

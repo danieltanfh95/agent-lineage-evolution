@@ -2,6 +2,8 @@
 succession/entity-type: card
 card/id: judge-conscience-framing
 card/tier: ethic
+card/tier-bounds:
+  max: ethic
 card/category: meta-cognition
 card/provenance:
   provenance/born-at: '2026-04-14T00:00:00Z'

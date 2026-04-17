@@ -249,13 +249,11 @@ The refresh gate controls emission frequency to prevent spam:
 
 ```clojure
 :refresh/gate
-{:integration-gap-turns 2    ; min tool calls between emissions after the first
- :cap-per-session       5    ; max emissions per session
- :byte-threshold        200  ; emit if this many transcript bytes accumulated
- :cold-start-skip-turns 1}   ; skip the first N tool calls before first emit
+{:byte-threshold        200000   ; emit once ≥200KB of transcript accumulated since last emit
+ :cold-start-skip-bytes 50000}   ; skip while the transcript is smaller than 50KB
 ```
 
-These values are imported unchanged from the conscience-loop experiment. Do not re-derive without a new controlled experiment.
+The gate is **byte-delta only** — no call counting, no wall-clock. The infinite-context axiom makes finite-time pacing meaningless inside a session; bytes-since-last-emit is the sole pacing signal. The same state file is shared between PreToolUse and PostToolUse, so parallel tool batches deduplicate naturally at the byte-count level.
 
 **SessionStart (cold path).** Delivers the full identity tree as `additionalContext` at session start. This provides auditability (the agent can see its complete identity at the start of each session) and first-turn priming. It does not provide behavioral uplift on long sessions — the content lands at position 0 and drifts. Use SessionStart for orientation, not enforcement.
 

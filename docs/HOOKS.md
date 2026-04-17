@@ -245,20 +245,21 @@ Otherwise empty.
   stdout/stderr go to `.succession/staging/jobs/.worker.log` (project-scoped;
   also readable via `succession queue status`).
 
-**Refresh gate (Finding 1 — do not re-derive).**
+**Refresh gate (byte-delta only).**
 
 ```clojure
 :refresh/gate
-{:integration-gap-turns 2    ; min tool calls between emissions after the first
- :cap-per-session       5    ; max emissions per session
- :byte-threshold        200  ; OR: emit if this many transcript bytes accumulated
- :cold-start-skip-turns 1}   ; skip the first N tool calls before first emit
+{:byte-threshold        200000   ; emit once ≥200KB of transcript accumulated since last emit
+ :cold-start-skip-bytes 50000}   ; skip while the transcript is smaller than 50KB
 ```
 
-`should-emit?` opens the gate when the emission count is under cap AND
-either (first emit and calls ≥ `cold-start-skip-turns`) or (later emit
-and at least `integration-gap-turns` calls since last emit OR
-`byte-threshold` bytes of transcript growth).
+`should-emit?` opens the gate when `cur-bytes ≥ cold-start-skip-bytes`
+AND either the emit counter is zero (first emit past cold-start) or
+`cur-bytes - last-emit-bytes ≥ byte-threshold`. There is no cap and
+no wall-clock component — the infinite-context axiom makes time
+meaningless inside a session, so bytes-since-last-emit is the sole
+pacing signal. Pre- and PostToolUse share the same state file keyed
+by `session_id`, so parallel tool batches deduplicate naturally.
 
 **Latency budget.** <1 s for the sync lane. The async lane is
 unbounded — it runs to completion in the background and never blocks
@@ -269,9 +270,9 @@ the refresh reminder, so the session is degraded but operational.
 
 | Key | Purpose |
 |-----|---------|
-| `:refresh/gate` | The four tuned gate parameters above |
+| `:refresh/gate` | Byte-delta gate parameters (shared by Pre- and PostToolUse) |
 | `:salience/profile` | Ranking + byte-cap for the reminder body |
-| `:consult/advisory :every-n-turns` | Periodic "you can consult" inline reminder |
+| `:consult/advisory :every-n-emits` | Periodic "you can consult" reminder, counted in gate emissions |
 | `:judge/llm :model` / `:timeout-seconds` | Async lane LLM config |
 
 **Gotchas.**

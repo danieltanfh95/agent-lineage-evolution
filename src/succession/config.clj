@@ -52,12 +52,14 @@
     :top-k            12}
 
    ;; --- Refresh gate (pacing filters, not budgets — see infinite-context principle) ---
-   ;; Context-size only — no call counting. Parallel tool calls in one turn
-   ;; hit burst suppression; 100KB ≈ 4-5 tool calls at typical density.
+   ;; Context-size only — no call counting, no wall-clock. Bytes since last
+   ;; emit is the only signal that an agent operating in effectively infinite
+   ;; context should trust; time means nothing inside the session. Parallel
+   ;; tool batches dedup naturally: cur-bytes doesn't grow between the N
+   ;; PreToolUse invocations fired before the tools run.
    :refresh/gate
-   {:byte-threshold        100000   ; 100KB since last emit
-    :cold-start-skip-bytes 50000    ; 50KB before first emit
-    :burst-suppress-ms     1000}    ; 1s wall-clock fast-skip
+   {:byte-threshold        200000   ; 200KB since last emit
+    :cold-start-skip-bytes 50000}   ; 50KB before first emit
 
    ;; --- Consult advisory reminder cadence ---
    ;; Fires every N emits (not tool calls) since emits are paced by context size.

@@ -415,16 +415,21 @@
    drive the pipeline without needing real LLM calls."
   ([project-root]
    (run! project-root {}))
-  ([project-root {:keys [handle-fn config-override]}]
+  ([project-root opts]
+   (run! project-root opts 0))
+  ([project-root {:keys [handle-fn config-override] :as opts} break-attempts]
    (let [cfg       (or config-override (config/load-config project-root))
          wcfg      (worker-config cfg)
          lock-path (paths/jobs-worker-lock project-root)
          lock      (locks/try-lock-at lock-path)]
      (cond
        (nil? lock)
-       (if (locks/stale-at? lock-path (:stale-lock-seconds wcfg))
+       (if (and (< break-attempts 2)
+                (locks/stale-at? lock-path (:stale-lock-seconds wcfg)))
          (do (locks/break-stale-at! lock-path)
-             (run! project-root {:handle-fn handle-fn :config-override cfg}))
+             (run! project-root
+                   {:handle-fn handle-fn :config-override cfg}
+                   (inc break-attempts)))
          0)
 
        :else
@@ -437,7 +442,7 @@
              _              (log! :info :worker/start
                                   :parallelism (:parallelism wcfg))
              _              (store-jobs/sweep-stale-inflight! project-root
-                                                              (:stale-lock-seconds wcfg))
+                                                              (:inflight-sweep-seconds wcfg))
              jobs-chan      (a/chan (:parallelism wcfg))
              results-chan   (a/chan (:parallelism wcfg))
              stop?          (atom false)

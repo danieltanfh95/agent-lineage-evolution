@@ -8,10 +8,10 @@
      2. Rank salient cards against the completed tool call via
         `domain/salience`.
      3. Render a compact refresh reminder via `domain/render/salient-reminder`.
-     4. Honor the refresh gate — context-size only (byte-threshold,
-        cold-start-skip-bytes, burst-suppress-ms). No call counting.
-        Parallel tool calls in one turn hit burst suppression; 100KB
-        between emits paces refreshes at typical tool-call density.
+     4. Honor the refresh gate — byte-delta only (byte-threshold,
+        cold-start-skip-bytes). No call counting, no wall-clock. The
+        gate state is shared with PreToolUse, so parallel tool batches
+        deduplicate naturally at the byte-count level.
      5. Detect deterministic `:invoked`/`:confirmed` observations via
         `card/fingerprint` substring match against the tool descriptor.
         Append the observation to `store/observations`.
@@ -31,10 +31,7 @@
    This namespace does not implement asyncRewake — that's deferred per
    plan §PostToolUse until the headless continuation loop is
    root-caused."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
-            [clojure.string :as str]
-            [babashka.fs :as fs]
+  (:require [clojure.string :as str]
             [succession.domain.card :as card]
             [succession.domain.observation :as dom-obs]
             [succession.domain.render :as render]
@@ -43,74 +40,6 @@
             [succession.store.cards :as store-cards]
             [succession.store.observations :as store-obs]
             [succession.transcript :as transcript]))
-
-;; ------------------------------------------------------------------
-;; Refresh state
-;;
-;; The refresh gate state lives in /tmp so it is session-scoped and
-;; does not pollute the project tree. The `identity-` in the file name
-;; is historical — it dates from the Phase 2 coexistence window when
-;; this hook ran alongside the predecessor refresh.clj. The prefix is
-;; kept because active sessions have state files under this name;
-;; renaming would reset the gate and drop in-flight refresh counters.
-;; ------------------------------------------------------------------
-
-(defn- state-file [session-id]
-  (str "/tmp/.succession-identity-refresh-" session-id))
-
-(def ^:private initial-state
-  {:emits 0 :last-emit-bytes 0 :last-emit-ms 0})
-
-(defn read-state
-  [session-id]
-  (let [f (io/file (state-file session-id))]
-    (if (.exists f)
-      (try (edn/read-string (slurp f))
-           (catch Throwable _ initial-state))
-      initial-state)))
-
-(defn- write-state! [session-id state]
-  (spit (state-file session-id) (pr-str state)))
-
-(defn- transcript-bytes [transcript-path]
-  (if (and transcript-path (fs/exists? transcript-path))
-    (fs/size transcript-path)
-    0))
-
-(defn should-emit?
-  "Gate decision — pure fn of (state, cur-bytes, now-ms, gate-config).
-
-   Pacing by context size only — no call counting. The infinite-context
-   axiom means drift is the enemy, not token budget.
-
-   Three gates:
-   1. Burst suppression — <1s since last emit, skip (handles parallel tool calls)
-   2. Cold start — haven't reached cold-start-skip-bytes yet
-   3. Byte threshold — 100KB since last emit"
-  [{:keys [emits last-emit-bytes last-emit-ms]}
-   cur-bytes
-   now-ms
-   {:keys [byte-threshold cold-start-skip-bytes burst-suppress-ms]
-    :or   {byte-threshold        100000
-           cold-start-skip-bytes 50000
-           burst-suppress-ms     1000}}]
-  (cond
-    ;; Burst suppression — <1s since last emit, skip (no I/O needed)
-    (and last-emit-ms (pos? last-emit-ms)
-         (< (- now-ms last-emit-ms) burst-suppress-ms))
-    false
-
-    ;; Cold start — haven't reached threshold yet
-    (< cur-bytes cold-start-skip-bytes)
-    false
-
-    ;; First emit — past cold start, never emitted
-    (zero? (or emits 0))
-    true
-
-    ;; Later emits — byte-threshold since last emit
-    :else
-    (>= (- cur-bytes (or last-emit-bytes 0)) byte-threshold)))
 
 ;; ------------------------------------------------------------------
 ;; Salient reminder
@@ -212,10 +141,9 @@
           descriptor   (tool-descriptor tool-name tool-input)
 
           ;; Refresh gate — context-size only, no call counting
-          prev-state   (read-state session)
-          cur-bytes    (transcript-bytes transcript)
-          now-ms       (System/currentTimeMillis)
-          emit?        (should-emit? prev-state cur-bytes now-ms (:refresh/gate cfg))
+          prev-state   (common/read-refresh-state session)
+          cur-bytes    (common/transcript-bytes transcript)
+          emit?        (common/should-emit? prev-state cur-bytes (:refresh/gate cfg))
 
           ;; Read recent-context once — used for both salience and judge
           ctx-window   (get-in cfg [:judge/llm :context-window])
@@ -232,16 +160,13 @@
         (write-invoked-observation! project-root matched session now))
 
       ;; Refresh emission path
-      (if emit?
+      (when emit?
         (let [new-emits (inc (or (:emits prev-state) 0))
               reminder  (build-reminder ranked new-emits cfg)]
-          (write-state! session
-                        {:emits           new-emits
-                         :last-emit-bytes cur-bytes
-                         :last-emit-ms    now-ms})
-          (common/emit-additional-context! "PostToolUse" reminder))
-        ;; No emit — preserve existing state (old keys harmless, ignored)
-        (write-state! session prev-state))
+          (common/write-refresh-state! session
+                                       {:emits           new-emits
+                                        :last-emit-bytes cur-bytes})
+          (common/emit-additional-context! "PostToolUse" reminder)))
 
       ;; Re-emit consult output as additionalContext so it surfaces in the
       ;; conversation rather than sitting in a collapsed Bash tool result.

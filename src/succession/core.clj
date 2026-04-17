@@ -116,8 +116,10 @@
             0))
 
       "identity-diff"
-      ((requiring-resolve 'succession.cli.identity-diff/run)
-       root (cons op rest-args))
+      (System/exit
+        (or ((requiring-resolve 'succession.cli.identity-diff/run)
+             root (cons op rest-args))
+            0))
 
       "show"
       (System/exit

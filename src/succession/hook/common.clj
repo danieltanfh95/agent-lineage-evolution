@@ -19,8 +19,10 @@
    (hook/ imports from domain+store+llm), §Data flow."
   (:require [babashka.process :as process]
             [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [babashka.fs :as fs]
             [succession.config :as config]
             [succession.domain.rollup :as rollup]
             [succession.domain.weight :as weight]
@@ -74,8 +76,9 @@
                  (.getPath d)
                  :else
                  (recur (.getParentFile d))))]
-    (binding [*out* *err*]
-      (println (str "[succession] project-root: " root " (cwd: " cwd ")")))
+    (when (System/getenv "SUCCESSION_DEBUG")
+      (binding [*out* *err*]
+        (println (str "[succession] project-root: " root " (cwd: " cwd ")"))))
     root))
 
 (defn load-config
@@ -83,6 +86,70 @@
    caller if needed; this fn does a single disk read."
   [input]
   (config/load-config (project-root input)))
+
+;; ------------------------------------------------------------------
+;; Refresh gate — shared by PreToolUse and PostToolUse. Pacing by
+;; transcript-bytes only; wall-clock is meaningless inside an
+;; effectively-infinite-context session. The state file is session-
+;; scoped and lives in /tmp so it does not pollute the project tree.
+;; Parallel tool batches dedup naturally: cur-bytes doesn't grow
+;; between the N PreToolUse invocations fired before the tools run,
+;; so the delta check `cur-bytes - last-emit-bytes >= byte-threshold`
+;; trips exactly once per batch.
+;;
+;; State shape: `{:emits N :last-emit-bytes N}`
+;; ------------------------------------------------------------------
+
+(def ^:private refresh-initial-state
+  {:emits 0 :last-emit-bytes 0})
+
+(defn- refresh-state-file [session-id]
+  (str "/tmp/.succession-identity-refresh-" session-id))
+
+(defn read-refresh-state
+  [session-id]
+  (let [f (io/file (refresh-state-file session-id))]
+    (if (.exists f)
+      (try (edn/read-string (slurp f))
+           (catch Throwable _ refresh-initial-state))
+      refresh-initial-state)))
+
+(defn write-refresh-state! [session-id state]
+  (spit (refresh-state-file session-id) (pr-str state)))
+
+(defn transcript-bytes
+  "Byte size of the Claude Code transcript file; 0 when absent."
+  [transcript-path]
+  (if (and transcript-path (fs/exists? transcript-path))
+    (fs/size transcript-path)
+    0))
+
+(defn should-emit?
+  "Gate decision — pure fn of (state, cur-bytes, gate-config).
+
+   Two gates:
+   1. Cold start — haven't reached `:cold-start-skip-bytes` yet, skip
+   2. Byte threshold — `:byte-threshold` bytes since last emit
+
+   No wall-clock suppression; bytes-since-last-emit is the sole signal
+   the infinite-context principle permits."
+  [{:keys [emits last-emit-bytes]}
+   cur-bytes
+   {:keys [byte-threshold cold-start-skip-bytes]
+    :or   {byte-threshold        200000
+           cold-start-skip-bytes 50000}}]
+  (cond
+    ;; Cold start — haven't reached threshold yet
+    (< cur-bytes cold-start-skip-bytes)
+    false
+
+    ;; First emit — past cold start, never emitted
+    (zero? (or emits 0))
+    true
+
+    ;; Later emits — byte-threshold since last emit
+    :else
+    (>= (- cur-bytes (or last-emit-bytes 0)) byte-threshold)))
 
 ;; ------------------------------------------------------------------
 ;; Card metrics — used by post_tool_use salience, pre_compact retier,

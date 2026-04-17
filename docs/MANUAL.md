@@ -664,32 +664,33 @@ cards below it drop out of the promoted tree.
 | `:salience/profile :feature-weights :fingerprint` | `4.0` | Bonus when fingerprint substring-matches the tool descriptor |
 | `:salience/profile :feature-weights :recency` | `0.5` | Bonus for freshness (0..1) |
 | `:salience/profile :feature-weights :weight` | `1.0` | Bonus proportional to computed weight |
-| `:salience/profile :top-k` | `3` | Max cards surfaced in a reminder |
+| `:salience/profile :top-k` | `12` | Max cards surfaced in a reminder |
 | `:salience/profile :byte-cap` | `400` | Max bytes in the rendered reminder |
 
-### Refresh gate (Finding 1)
+### Refresh gate
 
 ```clojure
 :refresh/gate
-{:integration-gap-turns 2
- :cap-per-session       5
- :byte-threshold        200
- :cold-start-skip-turns 1}
+{:byte-threshold        200000   ; emit once ≥200KB of transcript has accumulated since last emit
+ :cold-start-skip-bytes 50000}   ; skip while the transcript is smaller than 50KB
 ```
 
-These values are imported unchanged from the pytest-5103 replay that
-established the 18-0 result. Do not re-derive without a new experiment.
+The gate is **byte-delta only** — no wall-clock, no call counting.
+Finite time is meaningless inside a session the agent treats as
+infinite context; transcript bytes-since-last-emit is the sole pacing
+signal. The same state file is shared between PreToolUse and
+PostToolUse, so parallel tool batches deduplicate naturally.
 
 ### Consult advisory
 
 ```clojure
 :consult/advisory
-{:every-n-turns              8
+{:every-n-emits              4
  :on-contradiction-adjacency true}
 ```
 
 Cadence of the inline "you can consult" reminder piggybacked on
-PostToolUse refresh.
+PostToolUse refresh — counted in gate emissions, not turns.
 
 ### Escalation
 

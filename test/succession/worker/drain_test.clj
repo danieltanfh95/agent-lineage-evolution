@@ -27,11 +27,12 @@
 
 (def ^:private test-worker-config
   "Aggressive timings so the test completes in ~1s."
-  {:worker/async {:idle-timeout-seconds 1
-                  :parallelism          2
-                  :stale-lock-seconds   60
-                  :heartbeat-seconds    60
-                  :scan-interval-ms     50}})
+  {:worker/async {:idle-timeout-seconds   1
+                  :parallelism            2
+                  :stale-lock-seconds     60
+                  :heartbeat-seconds      60
+                  :scan-interval-ms       50
+                  :inflight-sweep-seconds 60}})
 
 (defn- seed-job! [root idx]
   (jobs/enqueue! root
@@ -120,9 +121,33 @@
                                      (swap! processed conj (:job/id job))
                                      [])
                   :config-override (assoc-in test-worker-config
-                                             [:worker/async :stale-lock-seconds] 60)})]
+                                             [:worker/async :inflight-sweep-seconds] 60)})]
       (is (= 0 exit))
       (is (contains? (set @processed) "stale-inflight-test")))))
+
+;; ------------------------------------------------------------------
+;; Regression — startup sweep uses :inflight-sweep-seconds, not
+;; :stale-lock-seconds. These keys measure different things: stale-lock
+;; protects the worker lock (60–90s), while inflight-sweep must outlast
+;; the longest LLM call (600s). Wiring the wrong key recycles live jobs
+;; mid-flight and produces infinite claim loops.
+;; ------------------------------------------------------------------
+
+(deftest drain-startup-sweep-uses-inflight-sweep-seconds-test
+  (testing "sweep-stale-inflight! is called with :inflight-sweep-seconds"
+    (seed-job! *root* 1)
+    (let [captured (atom [])]
+      (with-redefs [jobs/sweep-stale-inflight!
+                    (fn [_root seconds]
+                      (swap! captured conj seconds)
+                      0)]
+        (drain/run!
+          *root*
+          {:handle-fn       (fn [_] [])
+           :config-override (assoc-in test-worker-config
+                                      [:worker/async :inflight-sweep-seconds] 600)}))
+      (is (= [600] @captured)
+          "startup sweep threshold must match :inflight-sweep-seconds, not :stale-lock-seconds"))))
 
 ;; ------------------------------------------------------------------
 ;; E2E regression — map-shaped tool-response on the real judge path
