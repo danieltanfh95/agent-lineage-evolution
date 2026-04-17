@@ -24,6 +24,7 @@
    Reference: `.plans/succession-identity-cycle.md` §Reconcile categories,
    §Reconcile pipeline."
   (:require [clojure.string :as str]
+            [succession.domain.card :as card]
             [succession.llm.claude :as claude]
             [succession.llm.transport :as transport]))
 
@@ -31,19 +32,42 @@
 ;; Prompt construction
 ;; ------------------------------------------------------------------
 
+;; ------------------------------------------------------------------
+;; Friction guidance
+;; ------------------------------------------------------------------
+
+(def ^:private friction-guidance
+  "Friction tiers control how card content can be modified:
+
+FRICTION RULES (based on effective friction value):
+- effective < 0.5: Normal rewrite allowed. You may propose new text.
+- effective 0.5-1.0: Prefer append-section or spawn-card.
+  - append-section: Add new text as a new section, preserving human sections.
+  - spawn-card: Create a new related card instead of modifying this one.
+- effective >= 1.0: Human sections are IMMUTABLE. Use defer-to-human.
+  - defer-to-human: Flag for human review; do not propose text changes.
+
+When a card shows [N human sections], those sections cannot be deleted or
+rewritten if friction is high. You may only append new LLM sections or
+spawn a new card.")
+
 (def ^:private category-1-self-contradictory-schema
   "{\"category\": \"self-contradictory\",
-    \"kind\": \"rewrite\",
+    \"kind\": \"rewrite|append-section|spawn-card|defer-to-human\",
     \"card_id\": \"the card id\",
-    \"proposed_text\": \"new internally consistent text\",
+    \"proposed_text\": \"new text (for rewrite), or new section text (for append-section), or null\",
+    \"spawn_card_id\": \"new card id if spawn-card, else null\",
+    \"spawn_card_text\": \"new card text if spawn-card, else null\",
     \"rationale\": \"one or two sentences explaining what was contradictory\",
     \"confidence\": 0.0-1.0}")
 
 (def ^:private category-6-contextual-override-schema
   "{\"category\": \"contextual-override\",
-    \"kind\": \"scope-qualify|intentional\",
+    \"kind\": \"scope-qualify|intentional|append-section|spawn-card|defer-to-human\",
     \"card_id\": \"the card id\",
-    \"proposed_text\": \"new text with explicit scope if scope-qualify, or null if intentional\",
+    \"proposed_text\": \"new text (scope-qualify/rewrite), new section (append-section), or null\",
+    \"spawn_card_id\": \"new card id if spawn-card, else null\",
+    \"spawn_card_text\": \"new card text if spawn-card, else null\",
     \"rationale\": \"one or two sentences\",
     \"confidence\": 0.0-1.0}")
 
@@ -60,20 +84,36 @@
 
 (def ^:private category-3-principle-schema
   "{\"category\": \"principle-violated\",
-    \"kind\": \"rewrite|demote|escalate\",
+    \"kind\": \"rewrite|demote|escalate|append-section|spawn-card|defer-to-human\",
     \"card_id\": \"the principle-tier card in question\",
-    \"proposed_text\": \"new card text if rewrite, or null\",
+    \"proposed_text\": \"new text (rewrite), new section (append-section), or null\",
     \"proposed_tier\": \"if demote, one of :rule or :ethic; else null\",
+    \"spawn_card_id\": \"new card id if spawn-card, else null\",
+    \"spawn_card_text\": \"new card text if spawn-card, else null\",
     \"rationale\": \"one or two sentences\",
     \"confidence\": 0.0-1.0}")
 
-(defn- render-card [c]
-  (format "id=%s tier=%s category=%s\n  text: %s\n  tags: %s"
-          (:card/id c)
-          (name (:card/tier c))
-          (name (:card/category c))
-          (first (str/split-lines (or (:card/text c) "")))
-          (pr-str (or (:card/tags c) []))))
+(defn- render-card
+  "Render card info for prompts. Includes friction and section info when present."
+  ([c] (render-card c nil))
+  ([c config]
+   (let [friction    (:card/friction c)
+         sections    (:card/sections c)
+         human-count (card/human-section-count c)
+         eff-friction (when (and friction config) (card/effective-friction c config))]
+     (str (format "id=%s tier=%s category=%s"
+                  (:card/id c)
+                  (name (:card/tier c))
+                  (name (:card/category c)))
+          (when friction
+            (format " friction=%s" (name friction)))
+          (when eff-friction
+            (format " (effective=%.2f)" eff-friction))
+          (when (pos? human-count)
+            (format " [%d human section%s]" human-count (if (= 1 human-count) "" "s")))
+          (format "\n  text: %s\n  tags: %s"
+                  (first (str/split-lines (or (:card/text c) "")))
+                  (pr-str (or (:card/tags c) [])))))))
 
 (defn- render-observation-window [obs-seq]
   (->> obs-seq
@@ -88,45 +128,58 @@
 (defn build-category-1-prompt
   "Prompt for resolving a self-contradictory card (Category 1). Caller
    supplies the card whose text contains mutually exclusive directives."
-  [{:keys [card]}]
-  (str
-    "You are the reconcile voice of an agent's identity. This rule card "
-    "contains internally contradictory directives — it tells the agent "
-    "to do mutually exclusive things.\n\n"
-    "CARD:\n" (render-card card) "\n\n"
-    "Rewrite the card to be internally self-consistent. Preserve the "
-    "core intent. If the contradiction implies two distinct scenarios, "
-    "add explicit 'when' scope predicates rather than collapsing them.\n\n"
-    "If the card is NOT actually self-contradictory — i.e. its directives "
-    "are consistent or merely complementary — return confidence ≤ 0.3 and "
-    "explain in rationale why no rewrite is needed. Do not force a rewrite "
-    "on a consistent card.\n\n"
-    "Return ONLY a JSON object matching this schema:\n"
-    category-1-self-contradictory-schema))
+  [{:keys [card config]}]
+  (let [eff (when config (card/effective-friction card config))
+        friction-note (cond
+                        (nil? eff) ""
+                        (>= eff 1.0) "\n\nFRICTION: This card has effective friction >= 1.0. Human sections are IMMUTABLE. Use defer-to-human.\n"
+                        (>= eff 0.5) "\n\nFRICTION: This card has high friction. Prefer append-section (add clarifying text) or spawn-card over full rewrite.\n"
+                        :else "")]
+    (str
+      "You are the reconcile voice of an agent's identity. This rule card "
+      "contains internally contradictory directives — it tells the agent "
+      "to do mutually exclusive things.\n\n"
+      friction-guidance "\n\n"
+      "CARD:\n" (render-card card config) "\n"
+      friction-note "\n"
+      "Resolution options:\n"
+      "- rewrite: Full rewrite (only if friction allows)\n"
+      "- append-section: Add new clarifying section without changing human sections\n"
+      "- spawn-card: Create a new card that clarifies/supersedes this one\n"
+      "- defer-to-human: Flag for human review (required if friction >= 1.0)\n\n"
+      "If the card is NOT actually self-contradictory — i.e. its directives "
+      "are consistent or merely complementary — return confidence ≤ 0.3 and "
+      "explain in rationale why no rewrite is needed.\n\n"
+      "Return ONLY a JSON object matching this schema:\n"
+      category-1-self-contradictory-schema)))
 
 (defn build-category-6-prompt
   "Prompt for resolving a contextual-override contradiction (Category 6).
    Caller supplies the card and an optional prior-description from the
    pure detector's analysis."
-  [{:keys [card prior-description]}]
-  (str
-    "You are the reconcile voice of an agent's identity. A rule is "
-    "consistently overridden in certain contexts. This suggests either "
-    "the rule needs a scope qualifier, or the override is intentional.\n\n"
-    "CARD:\n" (render-card card) "\n\n"
-    "OVERRIDE PATTERN (from pure analysis):\n  " (or prior-description "") "\n\n"
-    "Choose:\n"
-    "- scope-qualify (DEFAULT) — the rule is correct but too broad; rewrite\n"
-    "  with an explicit scope predicate. You MUST include proposed_text with\n"
-    "  the rewritten card text. When in doubt, choose this.\n"
-    "- intentional — ONLY choose this when the prior description contains\n"
-    "  explicit user intent language such as \"user explicitly said\",\n"
-    "  \"intentional policy\", \"by design\", or equivalent. Behavioral\n"
-    "  patterns alone (e.g. \"consistently ignored\", \"overridden in\n"
-    "  practice\") are NOT sufficient for intentional — those indicate the\n"
-    "  rule needs scoping. proposed_text should be null.\n\n"
-    "Return ONLY a JSON object matching this schema:\n"
-    category-6-contextual-override-schema))
+  [{:keys [card prior-description config]}]
+  (let [eff (when config (card/effective-friction card config))
+        friction-note (cond
+                        (nil? eff) ""
+                        (>= eff 1.0) "\n\nFRICTION: This card has effective friction >= 1.0. Human sections are IMMUTABLE. Use defer-to-human or intentional (if truly intentional).\n"
+                        (>= eff 0.5) "\n\nFRICTION: This card has high friction. Prefer append-section or spawn-card over scope-qualify rewrite.\n"
+                        :else "")]
+    (str
+      "You are the reconcile voice of an agent's identity. A rule is "
+      "consistently overridden in certain contexts. This suggests either "
+      "the rule needs a scope qualifier, or the override is intentional.\n\n"
+      friction-guidance "\n\n"
+      "CARD:\n" (render-card card config) "\n"
+      friction-note "\n"
+      "OVERRIDE PATTERN (from pure analysis):\n  " (or prior-description "") "\n\n"
+      "Resolution options:\n"
+      "- scope-qualify — rewrite with explicit scope (only if friction allows)\n"
+      "- intentional — override is by design (no text change needed)\n"
+      "- append-section — add scope clarification as new section\n"
+      "- spawn-card — create new scoped card instead of modifying\n"
+      "- defer-to-human — flag for human review (required if friction >= 1.0)\n\n"
+      "Return ONLY a JSON object matching this schema:\n"
+      category-6-contextual-override-schema)))
 
 (defn build-category-2-prompt
   "Prompt for resolving a semantic-opposition contradiction between
@@ -161,29 +214,37 @@
 (defn build-category-3-principle-prompt
   "Prompt for resolving a principle-tier violation (Category 3 at
    :principle tier)."
-  [{:keys [card violating-observation obs-history]}]
-  (str
-    "You are the reconcile voice of an agent's identity. A principle-tier "
-    "card just got a :violated observation. At this tier, that's a "
-    "contradiction, not merely a weight penalty. Decide what to do.\n\n"
+  [{:keys [card violating-observation obs-history config]}]
+  (let [eff (when config (card/effective-friction card config))
+        friction-note (cond
+                        (nil? eff) ""
+                        (>= eff 1.0) "\n\nFRICTION: This principle card has effective friction >= 1.0. Human sections are IMMUTABLE. Use defer-to-human, demote, or escalate.\n"
+                        (>= eff 0.5) "\n\nFRICTION: This card has high friction. Prefer append-section, spawn-card, or demote over full rewrite.\n"
+                        :else "")]
+    (str
+      "You are the reconcile voice of an agent's identity. A principle-tier "
+      "card just got a :violated observation. At this tier, that's a "
+      "contradiction, not merely a weight penalty. Decide what to do.\n\n"
+      friction-guidance "\n\n"
+      "PRINCIPLE CARD:\n" (render-card card config) "\n"
+      friction-note "\n"
+      "VIOLATING OBSERVATION:\n"
+      "  at:     " (str (:observation/at violating-observation)) "\n"
+      "  kind:   " (name (:observation/kind violating-observation)) "\n"
+      "  context: " (or (:observation/context violating-observation) "") "\n\n"
 
-    "PRINCIPLE CARD:\n" (render-card card) "\n\n"
-    "VIOLATING OBSERVATION:\n"
-    "  at:     " (str (:observation/at violating-observation)) "\n"
-    "  kind:   " (name (:observation/kind violating-observation)) "\n"
-    "  context: " (or (:observation/context violating-observation) "") "\n\n"
+      "RECENT OBSERVATION HISTORY:\n" (render-observation-window obs-history) "\n\n"
 
-    "RECENT OBSERVATION HISTORY:\n" (render-observation-window obs-history) "\n\n"
+      "Resolution options:\n"
+      "- rewrite — refine text to capture edge case (only if friction allows)\n"
+      "- demote — move to :rule or :ethic tier\n"
+      "- escalate — flag for user review\n"
+      "- append-section — add clarifying exception as new section\n"
+      "- spawn-card — create new card for the edge case\n"
+      "- defer-to-human — required if friction >= 1.0 and rewrite needed\n\n"
 
-    "Possible kinds:\n"
-    "- :rewrite — the principle is still correct but the text needs\n"
-    "  refinement to capture the edge case.\n"
-    "- :demote — the principle is no longer load-bearing at principle\n"
-    "  tier; demote to :rule or :ethic.\n"
-    "- :escalate — the conflict cannot be resolved without the user.\n\n"
-
-    "Return ONLY a JSON object matching this schema:\n"
-    category-3-principle-schema))
+      "Return ONLY a JSON object matching this schema:\n"
+      category-3-principle-schema)))
 
 ;; ------------------------------------------------------------------
 ;; Batch prompt construction
@@ -196,45 +257,60 @@
    the batch prompt. Generic illustrative examples — not test fixtures."
   (str
     "Category-specific fields by category value:\n\n"
-    "  self-contradictory:   kind=rewrite, proposed_text=string\n"
-    "  contextual-override:  kind=scope-qualify|intentional, proposed_text=string-or-null\n"
-    "  semantic-opposition:  kind=scope-partition|tier-wins|rewrite-loser,\n"
+    "  self-contradictory:   kind=rewrite|append-section|spawn-card|defer-to-human\n"
+    "                        proposed_text=string-or-null\n"
+    "                        spawn_card_id=string-or-null, spawn_card_text=string-or-null\n"
+    "  contextual-override:  kind=scope-qualify|intentional|append-section|spawn-card|defer-to-human\n"
+    "                        proposed_text=string-or-null\n"
+    "                        spawn_card_id=string-or-null, spawn_card_text=string-or-null\n"
+    "  semantic-opposition:  kind=scope-partition|tier-wins|rewrite-loser|defer-to-human\n"
     "                        scope_a=string-or-null, scope_b=string-or-null,\n"
     "                        winner_card_id=string, loser_card_id=string,\n"
     "                        proposed_text=string-or-null\n"
-    "  principle-violated:   kind=rewrite|demote|escalate,\n"
+    "  principle-violated:   kind=rewrite|demote|escalate|append-section|spawn-card|defer-to-human\n"
     "                        proposed_text=string-or-null,\n"
-    "                        proposed_tier=rule|ethic|null"))
+    "                        proposed_tier=rule|ethic|null\n"
+    "                        spawn_card_id=string-or-null, spawn_card_text=string-or-null"))
 
 (defn- render-contradiction-block
   "Render one contradiction as a numbered prompt block."
-  [idx c cards-by-id]
+  [idx c cards-by-id config]
   (let [cat       (:contradiction/category c)
         cid       (:contradiction/id c)
         between   (:contradiction/between c)
         card-id-a (get-in between [0 :card/id])
         card-id-b (get-in between [1 :card/id])
         card-a    (when card-id-a (get cards-by-id card-id-a))
-        card-b    (when card-id-b (get cards-by-id card-id-b))]
+        card-b    (when card-id-b (get cards-by-id card-id-b))
+        eff-a     (when (and card-a config) (card/effective-friction card-a config))
+        friction-note-a (cond
+                          (nil? eff-a) ""
+                          (>= eff-a 1.0) "  ** FRICTION >= 1.0: Use defer-to-human **\n"
+                          (>= eff-a 0.5) "  ** HIGH FRICTION: Prefer append-section or spawn-card **\n"
+                          :else "")]
     (str
       "--- Contradiction " idx " ---\n"
       "contradiction_id: " cid "\n"
       "category: " (name cat) "\n\n"
       (case cat
         :self-contradictory
-        (str "CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n")
+        (str "CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
+             friction-note-a)
 
         :contextual-override
-        (str "CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n"
+        (str "CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
+             friction-note-a
              "OVERRIDE PATTERN: "
              (or (get-in c [:contradiction/resolution :description]) "") "\n")
 
         :semantic-opposition
-        (str "CARD A:\n" (if card-a (render-card card-a) "(card A not found)") "\n\n"
-             "CARD B:\n" (if card-b (render-card card-b) "(card B not found)") "\n")
+        (str "CARD A:\n" (if card-a (render-card card-a config) "(card A not found)") "\n"
+             friction-note-a "\n"
+             "CARD B:\n" (if card-b (render-card card-b config) "(card B not found)") "\n")
 
         :principle-violated
-        (str "PRINCIPLE CARD:\n" (if card-a (render-card card-a) "(card not found)") "\n"
+        (str "PRINCIPLE CARD:\n" (if card-a (render-card card-a config) "(card not found)") "\n"
+             friction-note-a
              "VIOLATING OBSERVATION context: "
              (or (get-in c [:contradiction/resolution :description]) "") "\n")
 
@@ -245,15 +321,16 @@
   "Build one prompt covering all contradictions in `contradictions`.
    The model must return a JSON array — one object per contradiction —
    in any order."
-  [contradictions cards-by-id]
+  [contradictions cards-by-id config]
   (str
     "You are the reconcile voice of an agent's identity. The following "
     "open contradictions each need a resolution. Analyse each one and "
     "return a JSON array — one object per contradiction — in any order.\n\n"
+    friction-guidance "\n\n"
     "If a contradiction is not genuine (cards are complementary or internally "
     "consistent), return confidence ≤ 0.3 for that entry.\n\n"
     (str/join "\n" (map-indexed
-                     (fn [i c] (render-contradiction-block (inc i) c cards-by-id))
+                     (fn [i c] (render-contradiction-block (inc i) c cards-by-id config))
                      contradictions))
     "\n" batch-category-schemas "\n\n"
     "Each JSON object in the array must include:\n"
@@ -266,8 +343,8 @@
     "Example response shape (generic — illustrative only):\n"
     "[\n"
     "  {\"contradiction_id\": \"c-aaa\", \"category\": \"self-contradictory\",\n"
-    "   \"kind\": \"rewrite\", \"rationale\": \"...\", \"confidence\": 0.85,\n"
-    "   \"proposed_text\": \"revised card text\"},\n"
+    "   \"kind\": \"append-section\", \"rationale\": \"...\", \"confidence\": 0.85,\n"
+    "   \"proposed_text\": \"clarifying exception text\"},\n"
     "  {\"contradiction_id\": \"c-bbb\", \"category\": \"semantic-opposition\",\n"
     "   \"kind\": \"scope-partition\", \"rationale\": \"...\", \"confidence\": 0.90,\n"
     "   \"scope_a\": \"when X\", \"scope_b\": \"when Y\",\n"
@@ -318,7 +395,7 @@
     (let [cfg     (:reconcile/llm config)
           model   (or (:model cfg) "deepseek/deepseek-chat")
           timeout (or (:timeout-seconds cfg) 90)
-          prompt  (build-batch-prompt contradictions cards-by-id)
+          prompt  (build-batch-prompt contradictions cards-by-id config)
           result  (transport/call prompt {:model-id     model
                                           :timeout-secs  timeout
                                           :output-toks   (* 320 (count contradictions))})]
@@ -336,12 +413,22 @@
 
 (defn- parse-generic [obj]
   (when (and (map? obj) (:category obj) (:kind obj))
-    (let [kw (fn [k] (some-> (get obj k) name keyword))]
-      {:category   (kw :category)
-       :kind       (kw :kind)
-       :rationale  (or (:rationale obj) "")
-       :confidence (double (or (:confidence obj) 0.0))
-       :payload    (dissoc obj :category :kind :rationale :confidence)})))
+    (let [kw (fn [k] (some-> (get obj k) name keyword))
+          kind (kw :kind)]
+      (cond-> {:category   (kw :category)
+               :kind       kind
+               :rationale  (or (:rationale obj) "")
+               :confidence (double (or (:confidence obj) 0.0))
+               :payload    (dissoc obj :category :kind :rationale :confidence)}
+        ;; Extract new-text for rewrite/append-section kinds
+        (and (#{:rewrite :append-section :scope-qualify} kind)
+             (:proposed_text obj))
+        (assoc :new-text (:proposed_text obj))
+
+        ;; Extract spawn-card fields
+        (and (= :spawn-card kind) (:spawn_card_id obj))
+        (assoc :spawn-card-id (:spawn_card_id obj)
+               :spawn-card-text (:spawn_card_text obj))))))
 
 (defn parse-response
   "Parse a JSON reconcile response into a resolution record. Returns

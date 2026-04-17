@@ -98,3 +98,45 @@
   "Does this card support pure invocation detection via fingerprint?"
   [card]
   (boolean (:card/fingerprint card)))
+
+(defn effective-friction
+  "Calculate effective friction for a card, accounting for tier multiplier.
+
+   Friction tiers: :open (0.0), :soft (0.3), :firm (0.7), :locked (1.0)
+   Tier multipliers: :principle (2.0×), :rule (1.0×), :ethic (0.5×)
+
+   Returns a numeric value:
+   - < 0.5: normal rewrite allowed
+   - 0.5-1.0: prefer append-section or spawn-card
+   - >= 1.0: defer-to-human (human sections immutable)
+
+   Cards with no friction default to :open (0.0)."
+  [card config]
+  (let [friction-tiers (or (:friction/tiers config)
+                           {:open 0.0 :soft 0.3 :firm 0.7 :locked 1.0})
+        tier-mults     (or (:friction/tier-multipliers config)
+                           {:principle 2.0 :rule 1.0 :ethic 0.5})
+        friction-kw    (or (:card/friction card) :open)
+        card-tier      (:card/tier card)
+        base-friction  (get friction-tiers friction-kw 0.0)
+        multiplier     (get tier-mults card-tier 1.0)]
+    (* base-friction multiplier)))
+
+(defn human-section-count
+  "Count the number of human-authored sections in a card."
+  [card]
+  (->> (:card/sections card)
+       (filter #(= :human (:source %)))
+       count))
+
+(defn friction-allows-rewrite?
+  "Can this card's human sections be rewritten by the LLM?
+   Returns true if effective friction < 1.0."
+  [card config]
+  (< (effective-friction card config) 1.0))
+
+(defn friction-prefers-append?
+  "Should the LLM prefer appending rather than rewriting?
+   Returns true if effective friction >= 0.5."
+  [card config]
+  (>= (effective-friction card config) 0.5))

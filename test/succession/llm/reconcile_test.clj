@@ -47,9 +47,12 @@
     (is (str/includes? prompt "PRINCIPLE CARD"))
     (is (str/includes? prompt "never-force-push"))
     (is (str/includes? prompt "violated"))
-    (is (str/includes? prompt ":rewrite"))
-    (is (str/includes? prompt ":demote"))
-    (is (str/includes? prompt ":escalate"))))
+    (is (str/includes? prompt "rewrite"))
+    (is (str/includes? prompt "demote"))
+    (is (str/includes? prompt "escalate"))
+    ;; New friction-aware options
+    (is (str/includes? prompt "append-section"))
+    (is (str/includes? prompt "defer-to-human"))))
 
 (deftest parse-response-object-test
   (let [text "{\"category\":\"semantic-opposition\",
@@ -76,8 +79,13 @@
                  {:card (a-card "verify-via-repl" :principle)})]
     (is (str/includes? prompt "verify-via-repl"))
     (is (str/includes? prompt "CARD"))
-    (is (str/includes? prompt "self-consistent"))
-    (is (str/includes? prompt "self-contradictory"))))
+    (is (str/includes? prompt "self-contradictory"))
+    ;; New friction-aware options
+    (is (str/includes? prompt "rewrite"))
+    (is (str/includes? prompt "append-section"))
+    (is (str/includes? prompt "spawn-card"))
+    (is (str/includes? prompt "defer-to-human"))
+    (is (str/includes? prompt "FRICTION"))))
 
 (deftest category-6-prompt-includes-card-and-pattern-test
   (let [prompt (reconcile/build-category-6-prompt
