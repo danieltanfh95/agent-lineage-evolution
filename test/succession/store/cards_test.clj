@@ -68,6 +68,14 @@
       (is (= #{"p1" "r1"} ids))
       (is (inst? (:at snap))))))
 
+(deftest round-trip-tier-bounds-test
+  (testing "tier-bounds survive write → read round-trip"
+    (let [c    (h/a-card {:id "b1" :tier :rule
+                           :tier-bounds {:floor :rule}})
+          _    (cards/write-card! *root* c)
+          back (first (cards/load-all-cards *root*))]
+      (is (= {:floor :rule} (:card/tier-bounds back))))))
+
 (deftest write-is-idempotent-per-id-test
   (testing "writing the same id twice overwrites, doesn't duplicate"
     (cards/write-card! *root* (h/a-card {:id "same" :tier :rule :text "v1"}))

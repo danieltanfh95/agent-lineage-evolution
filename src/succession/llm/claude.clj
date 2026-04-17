@@ -91,10 +91,40 @@
          :latency-ms (- (System/currentTimeMillis) t0)
          :model-id   model-id}))))
 
+(defn- extract-json-substring
+  "Find the first top-level JSON object or array in `text` by scanning
+   for the outermost `{...}` or `[...]` with balanced braces/brackets.
+   Returns the substring, or nil if none found."
+  [text]
+  (when-let [start (some #(when (#{\{ \[} (nth text %)) %)
+                          (range (count text)))]
+    (let [open  (nth text start)
+          close (if (= open \{) \} \])]
+      (loop [i (inc start) depth 1 in-str? false escape? false]
+        (when (< i (count text))
+          (let [ch (nth text i)]
+            (cond
+              escape?            (recur (inc i) depth in-str? false)
+              (and in-str? (= ch \\)) (recur (inc i) depth in-str? true)
+              (and in-str? (= ch \")) (recur (inc i) depth false false)
+              in-str?            (recur (inc i) depth in-str? false)
+              (= ch \")          (recur (inc i) depth true false)
+              (= ch open)        (recur (inc i) (inc depth) false false)
+              (= ch close)       (if (= depth 1)
+                                   (subs text start (inc i))
+                                   (recur (inc i) (dec depth) false false))
+              :else              (recur (inc i) depth false false))))))))
+
 (defn parse-json
   "Parse the text of a successful call into a Clojure data structure.
-   Returns nil on parse failure. Accepts both maps and sequences."
+   Returns nil on parse failure. Accepts both maps and sequences.
+   Falls back to extracting the first JSON object/array from surrounding
+   prose when strict parsing fails (common with deepseek and other models
+   that prepend preamble text despite 'Return ONLY JSON' instructions)."
   [text]
   (when text
-    (try (json/parse-string text true)
-         (catch Throwable _ nil))))
+    (or (try (json/parse-string text true)
+             (catch Throwable _ nil))
+        (when-let [extracted (extract-json-substring text)]
+          (try (json/parse-string extracted true)
+               (catch Throwable _ nil))))))

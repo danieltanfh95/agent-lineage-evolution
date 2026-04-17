@@ -118,7 +118,13 @@
    :worker/log-level :info
 
    ;; --- Four knowledge categories (whitepaper §3.3.3) ---
-   :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]})
+   :card/categories [:strategy :failure-inheritance :relational-calibration :meta-cognition]
+
+   ;; --- Friction tiers (card protection) ---
+   ;; Values are numeric weights: 0.0 (open) to 1.0 (locked).
+   ;; Tier multipliers scale effective friction: principle cards get 2x.
+   :friction/tiers {:open 0.0 :soft 0.3 :firm 0.7 :locked 1.0}
+   :friction/tier-multipliers {:principle 2.0 :rule 1.0 :ethic 0.5}})
 
 (def valid-tiers
   "Closed set of valid tier keywords. Anything else is a schema error."
@@ -127,6 +133,10 @@
 (def valid-categories
   "Closed set of whitepaper §3.3.3 knowledge categories."
   #{:strategy :failure-inheritance :relational-calibration :meta-cognition})
+
+(def valid-frictions
+  "Closed set of friction tiers for card protection."
+  #{:open :soft :firm :locked})
 
 (def valid-observation-kinds
   "Closed set of observation kinds."

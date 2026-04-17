@@ -175,11 +175,11 @@ Inspect and edit identity cards directly, without running the full
 ```
 succession identity list [--root <path>]
 succession identity show <card-id> [--root <path>]
-succession identity set  <card-id> [--tier <T>] [--tier-floor <T>] [--tier-max <T>] [--no-bounds] [--root <path>]
+succession identity set  <card-id> [--tier <T>] [--tier-floor <T>] [--tier-max <T>] [--no-bounds] [--friction <F>] [--no-friction] [--root <path>]
 ```
 
-- **`list`** — tabular view: id, tier, bounds (floor/max if set), category.
-- **`show <card-id>`** — verbose single card: all fields.
+- **`list`** — tabular view: id, tier, friction, bounds (floor/max if set), category.
+- **`show <card-id>`** — verbose single card: all fields including sections.
 - **`set <card-id>`** — edit card properties in place.
   - `--tier <T>` — move card to tier `T` (`principle | rule | ethic`).
     Also sets `{:floor T}` in bounds unless `--no-bounds` is given.
@@ -189,6 +189,9 @@ succession identity set  <card-id> [--tier <T>] [--tier-floor <T>] [--tier-max <
     changing the current tier.
   - `--no-bounds` — remove `:card/tier-bounds` entirely (card becomes
     fully metrics-driven on the next compact).
+  - `--friction <F>` — set the friction tier (`open | soft | firm | locked`).
+    See §Friction tiers below.
+  - `--no-friction` — remove friction (card defaults to `:open`).
 
 `set` writes the card file directly via `write-card!` and calls
 `materialize-promoted!` to refresh `promoted.edn`. It bypasses the
@@ -196,7 +199,7 @@ succession identity set  <card-id> [--tier <T>] [--tier-floor <T>] [--tier-max <
 if a floor bound was also set (or the metrics have lifted the card
 above the exit threshold on their own).
 
-Exit 0 on success, 1 on unknown card id or invalid tier value.
+Exit 0 on success, 1 on unknown card id or invalid tier/friction value.
 
 Reference: `src/succession/cli/identity.clj`.
 
@@ -391,6 +394,113 @@ under `.succession/observations/` are not touched — only staging delta logs
 
 Exit 0 on success, 1 on invalid usage.
 
+### observations
+
+Inspect and prune raw observation files under `.succession/observations/`.
+
+```
+succession observations <status | prune --older-than N(s|m|h|d) [--confirm]>
+```
+
+Subcommands:
+
+- **`status`** — total observation count, per-card-id counts (sorted by
+  count desc), and oldest/newest session directory dates.
+- **`prune --older-than <duration>`** — delete observation session
+  subdirectories whose directory mtime is older than the given threshold
+  (e.g. `30d`, `12h`). Dry-run by default; add `--confirm` to execute
+  deletions.
+
+Exit 0 on success, 1 on invalid usage.
+
+Reference: `src/succession/cli/observations.clj`.
+
+### contradictions
+
+Inspect and clear contradiction files under `.succession/contradictions/`.
+
+```
+succession contradictions <list | clear-resolved [--older-than N(s|m|h|d)] [--confirm]>
+```
+
+Subcommands:
+
+- **`list`** — tabulate all contradiction files: id, category, status
+  (open/resolved), resolved-at date. Open contradictions sort first,
+  then resolved by date descending.
+- **`clear-resolved [--older-than <duration>] [--confirm]`** — delete
+  resolved contradiction `.edn` files. With `--older-than`, only those
+  resolved more than the given duration ago. Dry-run by default; add
+  `--confirm` to execute.
+
+Exit 0 on success, 1 on invalid usage.
+
+Reference: `src/succession/cli/contradictions.clj`.
+
+### archive
+
+Inspect and prune archive snapshots under `.succession/archive/`.
+
+```
+succession archive <list | prune --keep-last N [--confirm]>
+```
+
+Subcommands:
+
+- **`list`** — tabulate all archive snapshots: timestamp and card count.
+  Sorted newest first.
+- **`prune --keep-last <N> [--confirm]`** — delete the oldest snapshots,
+  keeping the N most recent. Dry-run by default; add `--confirm` to
+  execute.
+
+Exit 0 on success, 1 on invalid usage.
+
+Reference: `src/succession/cli/archive.clj`.
+
+### statusline
+
+Claude Code statusline provider. Reads `{"session_id":"..."}` from
+stdin, counts observations and queue state for the session, and prints
+a single formatted line to stdout:
+
+```
+succession statusline
+```
+
+Output format: `succession: ✓5 ✗1 · judging 3` — confirmed/violated
+observation counts for the session, queue activity (`judging N` when
+pending+inflight > 0, `N failed` when dead > 0, `idle` when queue
+empty).
+
+Exit 0 always. Prints an empty line on any error so the statusline
+never causes Claude Code to surface an exception.
+
+Reference: `src/succession/cli/statusline.clj`.
+
+### worker
+
+The detached drain worker — PostToolUse and Stop hooks spawn
+`succession worker drain` after enqueueing async jobs. Not typically
+invoked by users directly.
+
+```
+succession worker <drain | logs [--follow]>
+```
+
+Subcommands:
+
+- **`drain`** — acquire `.worker.lock`, drain the job queue
+  (`staging/jobs/`), and self-exit when idle. At-most-one: if a fresh
+  lock is held by another worker, exits 0 immediately.
+- **`logs [--follow]`** — print the drain worker event log
+  (`.succession/staging/jobs/.worker.log`). With `--follow` or `-f`,
+  tail the log continuously.
+
+Exit 0 on success, 1 if no worker log exists.
+
+Reference: `src/succession/core.clj` (inline dispatch),
+`src/succession/worker/drain.clj`.
+
 ### hook &lt;event&gt;
 
 Invoked by Claude Code via `.claude/settings.local.json`. Reads one JSON
@@ -447,6 +557,63 @@ for that event. Stdout is a single JSON object of the form:
 fail-safe: any throwable is caught and logged to stderr, and the hook
 returns nil. A hook must never propagate an exception to Claude Code's
 harness.
+
+## Friction tiers
+
+Friction controls how easily LLM reconciliation can modify card content.
+Higher friction protects human-authored sections from incorrect rewrites.
+
+| Tier | Behavior |
+|------|----------|
+| `open` | Normal evolution — LLM can modify any section freely |
+| `soft` | Prefer additions — LLM should append rather than rewrite human sections |
+| `firm` | Strongly protected — LLM needs high confidence; prefers spawning new cards |
+| `locked` | Immutable — Human sections cannot be modified; LLM can only append |
+
+Set friction via `succession identity set <card-id> --friction <tier>`.
+
+### Section markers
+
+Card files use HTML comment markers to track provenance:
+
+```markdown
+---
+card/id: verify-via-repl
+card/tier: rule
+card/friction: firm
+---
+
+<!-- human: 2026-04-17 -->
+Verify assumptions via REPL before committing to an approach.
+
+<!-- human: 2026-04-17 -->
+In plan mode, the REPL is your primary verification tool.
+
+<!-- llm: 2026-04-18, session: abc123 -->
+**Exception:** When toolchain unavailable, defer verification.
+```
+
+| Marker | LLM Can Modify? |
+|--------|-----------------|
+| `<!-- human: YYYY-MM-DD -->` | No (protected by friction tier) |
+| `<!-- llm: YYYY-MM-DD, session: id -->` | Yes (soft, can be replaced) |
+| No marker (legacy) | Yes (treated as LLM-owned) |
+
+Human sections are protected according to the card's friction tier.
+LLM sections can always be rewritten by subsequent reconciliation passes.
+
+### Friction × Card tier multiplier
+
+The effective friction level is influenced by the card's tier:
+
+| Card Tier | Multiplier | Effect |
+|-----------|------------|--------|
+| principle | 2.0× | `soft` → `firm`, `firm` → `locked` |
+| rule | 1.0× | Normal friction |
+| ethic | 0.5× | `firm` → `soft`, more malleable |
+
+This means a `:firm` card at `:principle` tier is effectively `:locked`,
+while a `:firm` card at `:ethic` tier behaves like `:soft`.
 
 ## Config file reference
 
@@ -571,6 +738,16 @@ delta to staging with `:source :user-correction`.
 
 Closed set. Cards outside this set are a schema violation. See
 whitepaper §3.3.3 for the taxonomy.
+
+### Friction
+
+```clojure
+:friction/tiers {:open 0.0 :soft 0.3 :firm 0.7 :locked 1.0}
+:friction/tier-multipliers {:principle 2.0 :rule 1.0 :ethic 0.5}
+```
+
+Friction tier numeric values and card-tier multipliers. See §Friction
+tiers above for behavioral semantics.
 
 ## Disk layout
 

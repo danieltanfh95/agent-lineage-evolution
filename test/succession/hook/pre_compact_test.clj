@@ -128,6 +128,21 @@
       (is (= "Already rewritten text" (:card/text card))
           "Already-applied rewrite was not re-applied"))))
 
+(deftest tier-bounds-floor-holds-on-promote-test
+  (testing "a card with {:floor :rule} stays at :rule even when metrics
+            would demote it to :ethic (zero observations, weight=0)"
+    (store-cards/write-card! *root*
+      (h/a-card {:id "bounded-card" :tier :rule
+                 :tier-bounds {:floor :rule}
+                 :text "bounded card text"}))
+    (store-cards/materialize-promoted! *root*)
+    (pre-compact/promote! *root* "sess-bounds" now config/default-config)
+    (let [cards (store-cards/load-all-cards *root*)
+          c     (first (filter #(= "bounded-card" (:card/id %)) cards))]
+      (is (some? c) "card still exists")
+      (is (= :rule (:card/tier c))
+          "floor held — card stays at :rule despite zero observations"))))
+
 (deftest promoted-snapshot-regenerated-test
   (testing "promoted.edn is up-to-date after promote!"
     (store-staging/append-delta! *root* "sess1"

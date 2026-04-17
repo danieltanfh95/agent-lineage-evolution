@@ -24,6 +24,7 @@
             [succession.cli.config-validate-test]
             [succession.cli.consult-test]
             [succession.cli.identity-diff-test]
+            [succession.cli.identity-test]
             [succession.cli.import-test]
             [succession.cli.install-test]
             [succession.cli.queue-test]
@@ -67,6 +68,7 @@
     succession.cli.config-validate-test
     succession.cli.consult-test
     succession.cli.identity-diff-test
+    succession.cli.identity-test
     succession.cli.import-test
     succession.cli.install-test
     succession.cli.queue-test

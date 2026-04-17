@@ -410,6 +410,8 @@ After delta application, `retier-by-metrics` recomputes each card's
 eligible tier via `tier/propose-transition` and applies any
 `:promote`/`:demote` that fires. Hysteresis is enforced inside
 `eligible-tier`, so cards near thresholds don't flicker.
+If the card carries `:card/tier-bounds`, the computed tier is clamped
+to the declared floor/max before writing.
 
 **Latency budget.** Unbounded — PreCompact runs synchronously and
 blocks compaction. In practice dominated by disk I/O over the

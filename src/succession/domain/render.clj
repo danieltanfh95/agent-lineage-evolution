@@ -35,13 +35,19 @@
    :relational-calibration  "Relational calibration"
    :meta-cognition          "Meta-cognition"})
 
+(defn- section-marker?
+  "True if line is a section marker (<!-- human: ... --> or <!-- llm: ... -->)."
+  [line]
+  (boolean (re-matches #"<!--\s*(human|llm):.*-->" line)))
+
 (defn- card-first-line
-  "First non-empty line of the card text, trimmed."
+  "First non-empty, non-marker line of the card text, trimmed."
   [card]
   (let [txt (or (:card/text card) "")]
     (->> (str/split-lines txt)
          (map str/trim)
          (remove str/blank?)
+         (remove section-marker?)
          first)))
 
 (def ^:private tier->label

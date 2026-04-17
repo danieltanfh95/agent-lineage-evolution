@@ -25,7 +25,7 @@
       (.delete f))))
 
 (defn a-card
-  [{:keys [id tier category text tags fingerprint]
+  [{:keys [id tier category text tags fingerprint tier-bounds]
     :or {category :strategy
          text     "default text"}}]
   (card/make-card
@@ -35,6 +35,7 @@
      :text text
      :tags tags
      :fingerprint fingerprint
+     :tier-bounds tier-bounds
      :provenance {:provenance/born-at         #inst "2026-01-01T00:00:00Z"
                   :provenance/born-in-session "s0"
                   :provenance/born-from       :user-correction

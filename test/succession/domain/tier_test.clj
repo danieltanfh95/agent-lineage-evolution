@@ -93,6 +93,22 @@
       (is (= :ethic (:from t)))
       (is (= :archived (:to t))))))
 
+(deftest apply-bounds-test
+  (testing "nil bounds = no-op"
+    (is (= :ethic (tier/apply-bounds :ethic nil))))
+  (testing "floor clamps up"
+    (is (= :rule (tier/apply-bounds :ethic {:floor :rule}))))
+  (testing "at floor = no-op"
+    (is (= :rule (tier/apply-bounds :rule {:floor :rule}))))
+  (testing "above floor = no-op"
+    (is (= :principle (tier/apply-bounds :principle {:floor :rule}))))
+  (testing "max clamps down"
+    (is (= :rule (tier/apply-bounds :principle {:max :rule}))))
+  (testing "within range = no-op"
+    (is (= :rule (tier/apply-bounds :rule {:floor :ethic :max :principle}))))
+  (testing "both bounds, floor clamps"
+    (is (= :rule (tier/apply-bounds :ethic {:floor :rule :max :principle})))))
+
 (deftest demote-before-promote-test
   (testing "a tier transition does not simultaneously demote and promote"
     ;; A principle card with high weight but an unmet min-gap-crossings

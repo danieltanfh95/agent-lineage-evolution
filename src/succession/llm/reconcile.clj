@@ -97,6 +97,10 @@
     "Rewrite the card to be internally self-consistent. Preserve the "
     "core intent. If the contradiction implies two distinct scenarios, "
     "add explicit 'when' scope predicates rather than collapsing them.\n\n"
+    "If the card is NOT actually self-contradictory — i.e. its directives "
+    "are consistent or merely complementary — return confidence ≤ 0.3 and "
+    "explain in rationale why no rewrite is needed. Do not force a rewrite "
+    "on a consistent card.\n\n"
     "Return ONLY a JSON object matching this schema:\n"
     category-1-self-contradictory-schema))
 
@@ -112,8 +116,15 @@
     "CARD:\n" (render-card card) "\n\n"
     "OVERRIDE PATTERN (from pure analysis):\n  " (or prior-description "") "\n\n"
     "Choose:\n"
-    "- scope-qualify — rewrite with explicit scope predicate if the rule is too broad\n"
-    "- intentional — mark resolved if the override is expected and the card is correct\n\n"
+    "- scope-qualify (DEFAULT) — the rule is correct but too broad; rewrite\n"
+    "  with an explicit scope predicate. You MUST include proposed_text with\n"
+    "  the rewritten card text. When in doubt, choose this.\n"
+    "- intentional — ONLY choose this when the prior description contains\n"
+    "  explicit user intent language such as \"user explicitly said\",\n"
+    "  \"intentional policy\", \"by design\", or equivalent. Behavioral\n"
+    "  patterns alone (e.g. \"consistently ignored\", \"overridden in\n"
+    "  practice\") are NOT sufficient for intentional — those indicate the\n"
+    "  rule needs scoping. proposed_text should be null.\n\n"
     "Return ONLY a JSON object matching this schema:\n"
     category-6-contextual-override-schema))
 
@@ -137,7 +148,12 @@
     "- If a distinguishing scope predicate exists, propose :scope-partition\n"
     "  with concrete `scope_a` and `scope_b` strings.\n"
     "- Else higher tier wins; ties broken by the card with more recent\n"
-    "  reinforcement. The loser is either demoted or rewritten.\n\n"
+    "  reinforcement. The loser is either demoted or rewritten.\n"
+    "- If the two cards address clearly unrelated topics with no overlapping\n"
+    "  scope, return confidence ≤ 0.3 and explain why no resolution is needed.\n"
+    "  Cards that both use universal quantifiers (\"all\", \"always\", \"every\")\n"
+    "  on potentially overlapping data domains DO conflict — do not dismiss\n"
+    "  those as complementary.\n\n"
 
     "Return ONLY a JSON object matching this schema:\n"
     category-2-schema))
@@ -234,6 +250,8 @@
     "You are the reconcile voice of an agent's identity. The following "
     "open contradictions each need a resolution. Analyse each one and "
     "return a JSON array — one object per contradiction — in any order.\n\n"
+    "If a contradiction is not genuine (cards are complementary or internally "
+    "consistent), return confidence ≤ 0.3 for that entry.\n\n"
     (str/join "\n" (map-indexed
                      (fn [i c] (render-contradiction-block (inc i) c cards-by-id))
                      contradictions))
@@ -344,7 +362,7 @@
    `{:resolution <record> :ok? :cost-usd :latency-ms}`."
   [ctx config]
   (let [cfg     (:reconcile/llm config)
-        model   (or (:model cfg) "claude-sonnet-4-6")
+        model   (or (:model cfg) "deepseek/deepseek-chat")
         timeout (or (:timeout-seconds cfg) 60)
         prompt  (build-category-2-prompt ctx)
         result  (transport/call prompt {:model-id    model
@@ -360,7 +378,7 @@
   "Call the reconcile LLM for a principle-tier violation contradiction."
   [ctx config]
   (let [cfg     (:reconcile/llm config)
-        model   (or (:model cfg) "claude-sonnet-4-6")
+        model   (or (:model cfg) "deepseek/deepseek-chat")
         timeout (or (:timeout-seconds cfg) 60)
         prompt  (build-category-3-principle-prompt ctx)
         result  (transport/call prompt {:model-id    model
@@ -379,7 +397,7 @@
   (let [card-id (get-in contradiction [:contradiction/between 0 :card/id])
         card    (get cards-by-id card-id)
         cfg     (:reconcile/llm config)
-        model   (or (:model cfg) "claude-sonnet-4-6")
+        model   (or (:model cfg) "deepseek/deepseek-chat")
         timeout (or (:timeout-seconds cfg) 60)
         prompt  (build-category-1-prompt {:card card})
         result  (transport/call prompt {:model-id model :timeout-secs timeout :output-toks 320})]
@@ -398,7 +416,7 @@
         card       (get cards-by-id card-id)
         prior-desc (get-in contradiction [:contradiction/resolution :description])
         cfg        (:reconcile/llm config)
-        model      (or (:model cfg) "claude-sonnet-4-6")
+        model      (or (:model cfg) "deepseek/deepseek-chat")
         timeout    (or (:timeout-seconds cfg) 60)
         prompt     (build-category-6-prompt {:card card :prior-description prior-desc})
         result     (transport/call prompt {:model-id model :timeout-secs timeout :output-toks 320})]

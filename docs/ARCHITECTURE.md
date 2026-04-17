@@ -33,8 +33,9 @@ and which invariants hold the pipeline together. For command-line usage see
   object from stdin, does its work, emits zero or one JSON object on stdout.
   Never throws — errors go to `*err*` and the hook returns nil.
 - **`cli/*`** are invoked manually by the user or by the agent via `Bash`.
-  `consult`, `replay`, `config`, `install`, `identity-diff`, `import`,
-  `compact`, `staging`, `bench`.
+  `archive`, `bench`, `compact`, `config`, `consult`, `contradictions`,
+  `identity`, `identity-diff`, `import`, `observations`, `queue`, `replay`,
+  `show`, `staging`, `status`, `statusline`, `worker`.
 - **`llm/*`** wraps `claude -p` subprocess calls (judge, extract, reconcile,
   consult).
 - **`store/*`** is the only layer allowed to touch disk. Cards, observations,
@@ -61,16 +62,24 @@ live in their pure namespace alongside the predicate and constructor.
 {:succession/entity-type :card
  :card/id         "prefer-edit-over-write"
  :card/tier        :principle            ; :principle | :rule | :ethic
- :card/tier-bounds {:floor :rule}       ; optional — bounds map for retier clamping
- :card/category    :strategy            ; see config/valid-categories
+ :card/tier-bounds {:floor :rule}        ; optional — bounds map for retier clamping
+ :card/friction    :firm                 ; optional — :open | :soft | :firm | :locked
+ :card/category    :strategy             ; see config/valid-categories
  :card/text       "Prefer Edit over Write when modifying existing files…"
+ :card/sections   [{:text "…"            ; optional — parsed from file body
+                    :source :human
+                    :at #inst "2026-04-17"}
+                   {:text "…"
+                    :source :llm
+                    :session "abc123"
+                    :at #inst "2026-04-18"}]
  :card/tags       [:file-editing :tooling]
- :card/fingerprint "tool=Edit"          ; optional — pure invocation detection
+ :card/fingerprint "tool=Edit"           ; optional — pure invocation detection
  :card/provenance {:provenance/born-at         #inst "…"
                    :provenance/born-in-session "abc123"
                    :provenance/born-from       :user-correction
                    :provenance/born-context    "…"}
- :card/rewrites   ["h-deadbeef" …]}     ; optional backlinks
+ :card/rewrites   ["h-deadbeef" …]}      ; optional backlinks
 ```
 
 Weight and tier-eligibility are NOT stored on the card. They are computed
@@ -78,6 +87,12 @@ from the card's observation log on the fly. A card is inert data; everything
 interesting is derived. `:card/tier-bounds` is the one exception: it is stored
 on the card as a retier guard (`{:floor T :max T}`, both keys optional), not
 derived from observations.
+
+`:card/friction` controls how easily LLM reconciliation can modify the card's
+content. See [MANUAL.md §Friction tiers](MANUAL.md#friction-tiers) for the
+behavioral semantics. `:card/sections` is an ordered list of text blocks
+parsed from section markers in the card file — `:human` sections are protected
+by friction, `:llm` sections can be freely rewritten.
 
 ### observation (`domain/observation.clj`)
 

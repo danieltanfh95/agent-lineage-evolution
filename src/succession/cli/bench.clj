@@ -1,18 +1,18 @@
 (ns succession.cli.bench
   "`succession bench` — regression/cost/latency testing across LLM models.
 
-   Runs a fixed set of hand-labeled fixture cases through each model,
-   scores the results against expected verdicts, and prints a comparative
-   markdown table.
+   Dispatches to sub-benches:
+     succession bench [judge]     — judge bench (default)
+     succession bench reconcile   — reconcile LLM bench
+     succession bench consult     — consult LLM bench
 
-   Calls `transport/call` + `judge/parse-response` directly (NOT
-   `judge/judge-tool-call`) so each model is measured in isolation
-   without escalation-to-opus logic."
-  (:require [clojure.string :as str]
+   The judge bench runs a fixed set of hand-labeled fixture cases through
+   each model, scores the results against expected verdicts, and prints
+   a comparative markdown table."
+  (:require [succession.cli.bench-common :as bc]
             [succession.domain.card :as card]
             [succession.llm.judge :as judge]
-            [succession.llm.transport :as transport]
-            [succession.store.paths :as paths]))
+            [succession.llm.transport :as transport]))
 
 ;; ------------------------------------------------------------------
 ;; 1. Fixture data — bench cards + fixture cases
@@ -101,26 +101,6 @@
 ;; 2. Scoring — pure functions
 ;; ------------------------------------------------------------------
 
-(defn- compute-grade
-  "Weighted composite grade: 40% accuracy + 15% parse + 25% cost-efficiency + 20% latency-efficiency.
-   Cost/latency efficiency = 100 - normalized penalty (capped at 100).
-   A >= 85, B >= 70, C >= 55, D >= 40, F < 40."
-  [parse-pct accuracy-pct avg-cost avg-latency]
-  (let [;; Cost efficiency: $0 = 100, $0.05+ = 0
-        cost-eff    (max 0.0 (min 100.0 (- 100.0 (* 2000.0 avg-cost))))
-        ;; Latency efficiency: 0ms = 100, 50s+ = 0
-        latency-eff (max 0.0 (min 100.0 (- 100.0 (* 0.002 avg-latency))))
-        composite   (+ (* 0.40 accuracy-pct)
-                       (* 0.15 parse-pct)
-                       (* 0.25 cost-eff)
-                       (* 0.20 latency-eff))]
-    (cond
-      (>= composite 85.0) "A"
-      (>= composite 70.0) "B"
-      (>= composite 55.0) "C"
-      (>= composite 40.0) "D"
-      :else                "F")))
-
 (defn- score-case
   "Score a single fixture case against its parsed verdicts.
    Returns {:parsed? :card-match? :correct? :cost :latency}."
@@ -159,56 +139,9 @@
      :output-tokens (or output-tokens 0)
      :verdicts      verdicts}))
 
-(defn- aggregate-model
-  "Aggregate per-case scores into model-level metrics."
-  [model-id case-scores]
-  (let [total     (count case-scores)
-        parsed    (count (filter :parsed? case-scores))
-        correct   (count (filter :correct? case-scores))
-        costs     (map :cost-usd case-scores)
-        latencies (map :latency-ms case-scores)
-        in-toks   (map :input-tokens case-scores)
-        out-toks  (map :output-tokens case-scores)
-        parse-pct    (if (pos? total) (* 100.0 (/ parsed total)) 0.0)
-        accuracy-pct (if (pos? parsed) (* 100.0 (/ correct parsed)) 0.0)
-        avg-cost     (if (pos? total) (/ (reduce + 0.0 costs) total) 0.0)
-        avg-latency  (if (pos? total) (/ (reduce + 0.0 latencies) total) 0.0)
-        avg-in-toks  (if (pos? total) (/ (reduce + 0 in-toks) total) 0)
-        avg-out-toks (if (pos? total) (/ (reduce + 0 out-toks) total) 0)]
-    {:model-id       model-id
-     :total          total
-     :parsed         parsed
-     :correct        correct
-     :parse-pct      parse-pct
-     :accuracy-pct   accuracy-pct
-     :avg-cost       avg-cost
-     :avg-latency    avg-latency
-     :avg-in-tokens  avg-in-toks
-     :avg-out-tokens avg-out-toks
-     :grade          (compute-grade parse-pct accuracy-pct avg-cost avg-latency)
-     :cases          case-scores}))
-
 ;; ------------------------------------------------------------------
-;; 3. Runner — calls transport/call sequentially per model
+;; 3. Runner
 ;; ------------------------------------------------------------------
-
-(def ^:private default-models
-  ["claude-sonnet-4-6"
-   "opencode-go/mimo-v2-pro"
-   "opencode-go/mimo-v2-omni"
-   "openai/gpt-5.4-mini"
-   "openrouter/google/gemini-2.5-flash"
-   "openrouter/deepseek/deepseek-chat-v3-0324"])
-
-(def ^:private all-models
-  (into default-models
-        ["openai/gpt-5.4"
-         "opencode/gpt-5-nano"
-         "opencode-go/kimi-k2.5"
-         "openrouter/meta-llama/llama-4-maverick"
-         "openrouter/google/gemini-2.5-pro"
-         "openrouter/anthropic/claude-sonnet-4"
-         "openrouter/qwen/qwen3-235b-a22b"]))
 
 (defn- run-single-case
   "Run a single fixture case through the judge prompt for a given model.
@@ -224,106 +157,18 @@
     (score-case fixture verdicts (select-keys result [:cost-usd :latency-ms :input-tokens :output-tokens]))))
 
 (defn- run-model
-  "Run all fixture cases through a single model. Stores every individual
-   run result in :raw-runs for variance analysis. If 3 consecutive cases
-   have all runs fail to parse, skip the remainder."
-  [model-id {:keys [timeout-secs runs]
-             :or   {timeout-secs 45 runs 1}}]
-  (loop [cases       fixture-cases
-         all-raw     []
-         consec-fail 0]
-    (if (or (empty? cases) (>= consec-fail 3))
-      (do
-        (when (>= consec-fail 3)
-          (print " [SKIP:timeout]"))
-        (let [;; Aggregate: each raw run is an independent data point
-              agg (aggregate-model model-id all-raw)]
-          (assoc agg :raw-runs all-raw :runs-per-case runs)))
-      (let [fixture     (first cases)
-            run-results (vec (for [run-idx (range runs)]
-                              (assoc (run-single-case fixture model-id timeout-secs)
-                                     :run-idx run-idx)))
-            any-correct (some :correct? run-results)
-            any-parsed  (some :parsed? run-results)
-            all-failed  (not any-parsed)]
-        (print (if any-correct "." (if all-failed "x" "~")))
-        (flush)
-        (recur (rest cases)
-               (into all-raw run-results)
-               (if all-failed (inc consec-fail) 0))))))
+  "Run all fixture cases through a single model via shared loop."
+  [model-id opts]
+  (bc/run-model-loop model-id fixture-cases run-single-case opts))
 
 ;; ------------------------------------------------------------------
-;; 4. Output — markdown table + EDN persistence
+;; 4. CLI — entry points
 ;; ------------------------------------------------------------------
 
-(defn- fmt-cost [c] (format "$%.4f" (double c)))
-(defn- fmt-latency [ms] (format "%.1fs" (/ (double ms) 1000.0)))
-(defn- fmt-pct [p] (format "%.0f%%" (double p)))
-
-(defn- fmt-tokens [n] (if (pos? n) (str (long n)) "-"))
-
-(defn- print-results-table
-  "Print a markdown comparison table to stdout."
-  [model-results]
-  (println)
-  (println "| Model | Parse% | Accuracy% | Avg Cost | Avg Latency | Avg Out Toks | Grade |")
-  (println "|-------|--------|-----------|----------|-------------|--------------|-------|")
-  (doseq [r (sort-by :accuracy-pct > model-results)]
-    (println (format "| %s | %s | %s | %s | %s | %s | %s |"
-                     (:model-id r)
-                     (fmt-pct (:parse-pct r))
-                     (fmt-pct (:accuracy-pct r))
-                     (fmt-cost (:avg-cost r))
-                     (fmt-latency (:avg-latency r))
-                     (fmt-tokens (:avg-out-tokens r 0))
-                     (:grade r)))))
-
-(defn- write-bench-results!
-  "Write detailed EDN to .succession/bench/<timestamp>.edn."
-  [project-root model-results]
-  (let [bench-dir (str (paths/root project-root) "/bench")
-        ts        (.format (java.text.SimpleDateFormat. "yyyyMMdd-HHmmss") (java.util.Date.))
-        out-file  (str bench-dir "/" ts ".edn")]
-    (paths/ensure-dir! bench-dir)
-    (spit out-file (pr-str {:bench/timestamp ts
-                            :bench/results   model-results}))
-    (println (str "\nDetailed results written to: " out-file))))
-
-;; ------------------------------------------------------------------
-;; 5. CLI — parse-args + run entry point
-;; ------------------------------------------------------------------
-
-(defn- parse-args [args]
-  (loop [args (seq args)
-         opts {:models default-models :runs 1 :timeout 45 :output-dir nil}]
-    (if-not args
-      opts
-      (let [[a & rest] args]
-        (case a
-          "--models"     (let [v (first rest)]
-                          (recur (next rest)
-                                 (assoc opts :models
-                                        (if (= "all" v)
-                                          all-models
-                                          (str/split v #",")))))
-          "--runs"       (recur (next rest) (assoc opts :runs (parse-long (first rest))))
-          "--timeout"    (recur (next rest) (assoc opts :timeout (parse-long (first rest))))
-          "--output-dir" (recur (next rest) (assoc opts :output-dir (first rest)))
-          ("--help" "-h")
-          (do (println "Usage: succession bench [options]")
-              (println "  --models m1,m2,...   Comma-separated model IDs (default: curated 6)")
-              (println "  --models all         Full 13-model sweep")
-              (println "  --runs N             Runs per case per model (default: 1)")
-              (println "  --timeout N          Per-call timeout in seconds (default: 45)")
-              (println "  --output-dir PATH    EDN output directory (default: .succession/bench/)")
-              (System/exit 0))
-          ;; Unknown flag — skip
-          (recur rest opts))))))
-
-(defn run
-  "Entry point for `succession bench`."
+(defn- run-judge
+  "Judge bench — the original `succession bench` behavior."
   [project-root args]
-  (let [opts    (parse-args args)
+  (let [opts    (bc/parse-args args "")
         models  (:models opts)
         _       (println (str "Judge Bench — " (count models) " model(s), "
                               (count fixture-cases) " cases, "
@@ -338,6 +183,20 @@
                                                    :runs         (:runs opts)})]
                         (println)
                         r))))]
-    (print-results-table results)
-    (write-bench-results! project-root results)
+    (bc/print-results-table results)
+    (bc/write-bench-results! project-root results :judge)
     0))
+
+(defn run
+  "Entry point for `succession bench`. Dispatches to sub-benches:
+   reconcile, consult, or judge (default)."
+  [project-root args]
+  (let [[sub & rest-args] args]
+    (case sub
+      "reconcile" ((requiring-resolve 'succession.cli.bench-reconcile/run)
+                   project-root rest-args)
+      "consult"   ((requiring-resolve 'succession.cli.bench-consult/run)
+                   project-root rest-args)
+      "judge"     (run-judge project-root rest-args)
+      ;; Default: no subcommand — pass all args to judge bench
+      (run-judge project-root args))))

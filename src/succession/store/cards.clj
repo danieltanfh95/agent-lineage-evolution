@@ -69,18 +69,93 @@
       (:card/rewrites card)    (assoc :card/rewrites (vec (:card/rewrites card)))
       (:card/tier-bounds card) (assoc :card/tier-bounds
                                       (into {} (map (fn [[k v]] [k (name v)]))
-                                            (:card/tier-bounds card))))))
+                                            (:card/tier-bounds card)))
+      (:card/friction card)    (assoc :card/friction (name (:card/friction card))))))
+
+;; ------------------------------------------------------------------
+;; Section marker parsing
+;; ------------------------------------------------------------------
+
+(def ^:private section-marker-re
+  "Regex matching section markers: <!-- human: date --> or <!-- llm: date, session: id -->"
+  #"<!--\s*(human|llm):\s*(\d{4}-\d{2}-\d{2})(?:,\s*session:\s*([^\s>]+))?\s*-->")
+
+(defn- parse-date-str
+  "Parse YYYY-MM-DD to java.util.Date at midnight UTC."
+  [s]
+  (when s
+    (try
+      (java.util.Date/from
+        (.toInstant (.atStartOfDay (java.time.LocalDate/parse s)
+                                   java.time.ZoneOffset/UTC)))
+      (catch Exception _ nil))))
+
+(defn- parse-sections
+  "Parse markdown body into sections based on <!-- human/llm: ... --> markers.
+   Returns a vec of {:text str :source :human/:llm :at Date :session str-or-nil}.
+   If no markers found, returns nil (legacy card, whole body is LLM-owned)."
+  [body]
+  (let [lines   (str/split-lines body)
+        matcher (fn [line] (re-matches section-marker-re (str/trim line)))]
+    (loop [remaining lines
+           current   nil
+           sections  []]
+      (if (empty? remaining)
+        (let [final (when current
+                      (update current :text #(str/trim (str/join "\n" %))))]
+          (when (seq sections)
+            (if final
+              (conj sections final)
+              sections)))
+        (let [line  (first remaining)
+              match (matcher line)]
+          (if match
+            ;; New section marker found
+            (let [[_ source-str date-str session-str] match
+                  new-section {:text    []
+                               :source  (keyword source-str)
+                               :at      (parse-date-str date-str)
+                               :session session-str}
+                  updated     (if current
+                                (conj sections (update current :text #(str/trim (str/join "\n" %))))
+                                sections)]
+              (recur (rest remaining) new-section updated))
+            ;; Regular content line
+            (recur (rest remaining)
+                   (when current (update current :text conj line))
+                   sections)))))))
+
+(defn- render-section-marker
+  "Render a section marker comment."
+  [{:keys [source at session]}]
+  (let [date-str (if at
+                   (-> at .toInstant (.atZone java.time.ZoneOffset/UTC) .toLocalDate str)
+                   (str (java.time.LocalDate/now)))]
+    (if (and (= source :llm) session)
+      (format "<!-- %s: %s, session: %s -->" (name source) date-str session)
+      (format "<!-- %s: %s -->" (name source) date-str))))
+
+(defn- sections->body
+  "Render sections back to markdown body with markers."
+  [sections]
+  (if (empty? sections)
+    ""
+    (->> sections
+         (map (fn [s] (str (render-section-marker s) "\n" (:text s))))
+         (str/join "\n\n"))))
 
 (defn- frontmatter->card
   "Reverse of `card->frontmatter`. Validates via `domain/card/make-card`."
   [fm body file]
-  (let [prov       (or (:card/provenance fm) {})
-        tags       (:card/tags fm)
-        tier       (keyword-or-str (:card/tier fm))
-        cat        (keyword-or-str (:card/category fm))
-        raw-bounds (:card/tier-bounds fm)
+  (let [prov        (or (:card/provenance fm) {})
+        tags        (:card/tags fm)
+        tier        (keyword-or-str (:card/tier fm))
+        cat         (keyword-or-str (:card/category fm))
+        friction    (when-let [f (:card/friction fm)] (keyword-or-str f))
+        raw-bounds  (:card/tier-bounds fm)
         tier-bounds (when raw-bounds
-                      (into {} (map (fn [[k v]] [k (keyword v)])) raw-bounds))]
+                      (into {} (map (fn [[k v]] [k (keyword v)])) raw-bounds))
+        sections    (parse-sections (or body ""))]
     (-> (card/make-card
           {:id          (:card/id fm)
            :tier        tier
@@ -89,6 +164,8 @@
            :tags        (when tags (mapv keyword-or-str tags))
            :fingerprint (:card/fingerprint fm)
            :tier-bounds tier-bounds
+           :friction    friction
+           :sections    sections
            :provenance  {:provenance/born-at         (iso->inst (:provenance/born-at prov))
                          :provenance/born-in-session (:provenance/born-in-session prov)
                          :provenance/born-from       (keyword-or-str
@@ -116,11 +193,15 @@
 
 (defn- render-file [card]
   (let [fm-yaml (yaml/generate-string (card->frontmatter card)
-                                      :dumper-options {:flow-style :block})]
+                                      :dumper-options {:flow-style :block})
+        ;; If card has sections, render with markers; otherwise use plain text
+        body    (if-let [sections (seq (:card/sections card))]
+                  (sections->body sections)
+                  (str/trim (:card/text card)))]
     (str delimiter "\n"
          (str/trimr fm-yaml) "\n"
          delimiter "\n\n"
-         (str/trim (:card/text card)) "\n")))
+         body "\n")))
 
 (defn read-card
   "Read a single card from a file path. Returns the card map with an

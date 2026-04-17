@@ -152,8 +152,9 @@ Options:
     "## reflection\n\n"
 
     "In the tier sections, list the relevant card ids with weight\n"
-    "and a short one-liner. In `tensions`, name any direct conflict\n"
-    "between the situation and a high-tier card. In `reflection`,\n"
+    "and a short one-liner. In `tensions`, list each tension from\n"
+    "the snapshot using its bracketed label exactly as shown (e.g.\n"
+    "`[principle-forbids]`, `[tier-split]`). In `reflection`,\n"
     "write 2-4 sentences as the agent's second opinion on itself.\n"
     "Do NOT apologise, do NOT explain that you are an AI.\n\n"
 
